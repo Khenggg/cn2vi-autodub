@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "stage": "probe",
+  "status": "MEASURED",
+  "adapter": null,
+  "source_sha256": "eb68647b754f382a5ff04863d1640461398f48da5a9eec33aa9e7e3765f66252",
+  "source_duration_ms": 2000,
+  "environment": {
+    "python": "3.12.14",
+    "platform": "Windows-11-10.0.26200-SP0",
+    "gpu": {
+      "available": true,
+      "name": "NVIDIA GeForce GTX 1650 Ti",
+      "total_mb": 4096,
+      "free_mb": 2940
+    },
+    "commit": null
+  },
+  "validation": "QUALITY_REVIEW_REQUIRED",
+  "quality_metrics": {},
+  "model_revision": null,
+  "weights_sha256": null,
+  "metrics": {
+    "stage_wall_ms": 59,
+    "ram_peak_bytes_sampled": 29245440,
+    "gpu_device_peak_used_mb_sampled": 1155,
+    "realtime_factor": 0.0295,
+    "gpu_measurement_scope": "whole_first_device_including_other_processes",
+    "sampling_interval_ms": 500
+  }
+}

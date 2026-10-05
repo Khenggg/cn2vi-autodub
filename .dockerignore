@@ -1,0 +1,17 @@
+.git
+.venv
+.cache
+.env
+.codebase-memory
+__pycache__
+**/__pycache__
+.pytest_cache
+.ruff_cache
+data
+output
+docs
+tests
+frontend/node_modules
+frontend/dist
+benchmark-results
+*.egg-info
