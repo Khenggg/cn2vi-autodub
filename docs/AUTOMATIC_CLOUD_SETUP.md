@@ -1,10 +1,10 @@
 # Cài cloud từ GitHub
 
-Luồng chính lấy mã nguồn trực tiếp từ repository GitHub riêng `Khenggg/cn2vi-autodub`, rồi chạy `scripts/cloud_setup.sh`. Setup cài môi trường, tải và kiểm tra model assets đã pin, rồi chạy preflight. Nó không tạo hoặc tắt máy cloud, cài NVIDIA driver, chạy benchmark hay gọi API dịch.
+Luồng chính lấy mã nguồn trực tiếp từ repository GitHub public `Khenggg/cn2vi-autodub`, rồi chạy `scripts/cloud_setup.sh`. Setup cài môi trường, tải và kiểm tra model assets đã pin, rồi chạy preflight. Nó không tạo hoặc tắt máy cloud, cài NVIDIA driver, chạy benchmark hay gọi API dịch.
 
-## 1. Clone repository riêng
+## 1. Clone repository
 
-Host cần kết nối Internet và Git. Đảm bảo tài khoản trên host có quyền đọc repository private. Nếu GitHub yêu cầu xác thực, dùng `gh auth login`, credential helper đã cấu hình hoặc SSH key được cấp quyền; không đặt PAT trong URL hoặc command line.
+Host chỉ cần kết nối Internet và Git. Repository ở chế độ public nên có thể clone trực tiếp mà không cần đăng nhập:
 
 ```bash
 git clone https://github.com/Khenggg/cn2vi-autodub.git
