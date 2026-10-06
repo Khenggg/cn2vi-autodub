@@ -1,0 +1,58 @@
+{
+  "schema_version": 1,
+  "source_sha256": "9c1b115517366ce9627e12746634e0b111f0d60fe02fecdd81d19cc771ad7862",
+  "roi": {
+    "x": 0.1,
+    "y": 0.72,
+    "w": 0.8,
+    "h": 0.25,
+    "scope": "episode"
+  },
+  "frames": [
+    {
+      "frame_index": 0,
+      "at_ms": 0,
+      "image": "roi_000000.png",
+      "mask": "mask_000000.png",
+      "image_sha256": "2775c864f3697719aa5f8ab7dd26eae8b387e610a8d2b57ba906ab2e7e03b25e",
+      "mask_sha256": "83697b18057f2fc9f5761eb86ef1e3397eb5cb3733e93d7eb81626477a5703ef",
+      "boxes": [
+        [
+          [
+            78.0,
+            9.0
+          ],
+          [
+            331.0,
+            9.0
+          ],
+          [
+            331.0,
+            86.0
+          ],
+          [
+            78.0,
+            86.0
+          ]
+        ]
+      ],
+      "texts": [
+        "中文字幕测试"
+      ],
+      "scores": [
+        0.9999
+      ]
+    }
+  ],
+  "ocr_scope": "ROI_ONLY",
+  "mask_origin": "OCR_POLYGONS",
+  "temporal_coverage": "SAMPLED_FRAMES",
+  "frame_count": 1,
+  "fps_num": 24,
+  "fps_den": 1,
+  "crop_context_px": 0,
+  "mask_dilate_px": 4,
+  "start_ms": 0,
+  "end_ms": 1000,
+  "temporal_hold_applied": false
+}

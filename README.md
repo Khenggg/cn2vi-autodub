@@ -2,7 +2,7 @@
 
 Web cá nhân chuyển phim tiếng Trung sang thoại Việt và Vietsub, giữ non-verbal/SFX, xóa subtitle Trung sau review ROI. Yêu cầu gốc ở `docs/CN2VI_AutoDub_Implementation_Guide_v1.0.docx`.
 
-**Phiên bản 0.1 triển khai nền tảng Phase 1 và runner cho Phase 0.** Có tạo Series, glossary, upload tiếp tục theo offset, queue ưu tiên, FFprobe, checkpoint, SSE, drain và xuất metadata workspace. ASR, dịch, tách âm, TTS, xóa/burn subtitle chưa tích hợp; episode dừng ở CHECKPOINTED trước ASR. Không có pipeline/demo AI giả.
+**Phiên bản 0.1 triển khai nền tảng Phase 1 và bộ benchmark Phase 0.** Có tạo Series, glossary, upload tiếp tục theo offset, queue ưu tiên, FFprobe, checkpoint, SSE, drain và xuất metadata workspace. Adapters model có thể chạy độc lập qua benchmark CLI; chưa tích hợp pipeline lồng tiếng vào web, nên episode vẫn dừng ở CHECKPOINTED trước ASR.
 
 ## Chạy local
 
@@ -78,4 +78,12 @@ Test bao phủ auth/CSRF, upload resume/offset/hash và crash rename, state mach
 
 [Benchmark CLI](benchmarks/README.md), [tiến độ và gates](docs/IMPLEMENTATION_STATUS.md), [kiến trúc](docs/adr/0001-core-foundation.md), [kết quả xác minh](docs/VALIDATION.md).
 
-Tài liệu framework tham khảo: [FastAPI security](https://fastapi.tiangolo.com/tutorial/security/), [Vite guide](https://vite.dev/guide/), [Python SQLite](https://docs.python.org/3/library/sqlite3.html). Candidate ASR cần kiểm tra từ [Qwen3-ASR upstream](https://github.com/QwenLM/Qwen3-ASR) khi triển khai adapter.
+## Chuẩn bị trước GPU cloud
+
+Đã khóa revision/checksum model, dependency profiles độc lập, adapter Qwen ASR/aligner, Bandit, VieNeu-TTS, RapidOCR, LaMa và ProPainter. Bộ suite chạy từng model trong process riêng, ghi thời gian/RTF/RAM/VRAM và phần bằng chứng chất lượng còn thiếu. Provider DashScope có retry và kiểm tra JSON; chưa gọi API thật.
+
+OCR, LaMa và TTS ONNX đã chạy trên CPU với clip tổng hợp. Clip này chỉ xác minh đường chạy; chất lượng phim thật, GPU và mục tiêu chi phí chưa được xác nhận. Xem [CPU smoke](docs/CPU_SMOKE.md), [chuẩn bị corpus](docs/BENCHMARK_CORPUS.md), [sinh suite](docs/BENCHMARK_PLAN.md), [cloud runbook](docs/CLOUD_RUNBOOK.md) và [điểm chuyển sang GPU](docs/PRE_GPU_READINESS.md).
+
+Cloud bootstrap dành cho Ubuntu 24.04/Python 3.12, reference RTX 5060 Ti 16 GB. Tạo plan trên máy sẽ chạy benchmark để đường dẫn media/interpreter đúng. Các bước bootstrap, tải weights, preflight và inference tách riêng; repo không tự thuê hoặc tắt máy cloud.
+
+Tài liệu framework tham khảo: [FastAPI security](https://fastapi.tiangolo.com/tutorial/security/), [Vite guide](https://vite.dev/guide/), [Python SQLite](https://docs.python.org/3/library/sqlite3.html), [Qwen3-ASR upstream](https://github.com/QwenLM/Qwen3-ASR).

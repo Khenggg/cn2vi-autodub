@@ -1,0 +1,411 @@
+{
+  "schema_version": 1,
+  "model_validation": "PENDING_CLOUD_BENCHMARK",
+  "models": [
+    {
+      "id": "qwen-asr",
+      "kind": "huggingface",
+      "repo": "Qwen/Qwen3-ASR-0.6B",
+      "revision": "5eb144179a02acc5e5ba31e748d22b0cf3e303b0",
+      "files": [
+        {
+          "path": "chat_template.json",
+          "bytes": 1161,
+          "url": "https://huggingface.co/Qwen/Qwen3-ASR-0.6B/resolve/5eb144179a02acc5e5ba31e748d22b0cf3e303b0/chat_template.json",
+          "git_blob_sha1": "c44736493efd71ec96218cc626904698cdb13235"
+        },
+        {
+          "path": "config.json",
+          "bytes": 6193,
+          "url": "https://huggingface.co/Qwen/Qwen3-ASR-0.6B/resolve/5eb144179a02acc5e5ba31e748d22b0cf3e303b0/config.json",
+          "git_blob_sha1": "8113d596dec2d1a2ef4552edfe005ee84d16d9ec"
+        },
+        {
+          "path": "generation_config.json",
+          "bytes": 142,
+          "url": "https://huggingface.co/Qwen/Qwen3-ASR-0.6B/resolve/5eb144179a02acc5e5ba31e748d22b0cf3e303b0/generation_config.json",
+          "git_blob_sha1": "7382a4d347c0a865b76bb1b8277f66a5ac312854"
+        },
+        {
+          "path": "merges.txt",
+          "bytes": 1671853,
+          "url": "https://huggingface.co/Qwen/Qwen3-ASR-0.6B/resolve/5eb144179a02acc5e5ba31e748d22b0cf3e303b0/merges.txt",
+          "git_blob_sha1": "31349551d90c7606f325fe0f11bbb8bd5fa0d7c7"
+        },
+        {
+          "path": "model.safetensors",
+          "bytes": 1876091704,
+          "url": "https://huggingface.co/Qwen/Qwen3-ASR-0.6B/resolve/5eb144179a02acc5e5ba31e748d22b0cf3e303b0/model.safetensors",
+          "sha256": "79d6cbd4c98c7bbffe9db2edac07f56cd6637d0d5944b27f6c2b8353840323ea"
+        },
+        {
+          "path": "preprocessor_config.json",
+          "bytes": 330,
+          "url": "https://huggingface.co/Qwen/Qwen3-ASR-0.6B/resolve/5eb144179a02acc5e5ba31e748d22b0cf3e303b0/preprocessor_config.json",
+          "git_blob_sha1": "8f7f07346466d5d494ec0d4969d1c3d0190eed72"
+        },
+        {
+          "path": "tokenizer_config.json",
+          "bytes": 12487,
+          "url": "https://huggingface.co/Qwen/Qwen3-ASR-0.6B/resolve/5eb144179a02acc5e5ba31e748d22b0cf3e303b0/tokenizer_config.json",
+          "git_blob_sha1": "b93109843922a40c6654c5449d3bf95372267c66"
+        },
+        {
+          "path": "vocab.json",
+          "bytes": 2776833,
+          "url": "https://huggingface.co/Qwen/Qwen3-ASR-0.6B/resolve/5eb144179a02acc5e5ba31e748d22b0cf3e303b0/vocab.json",
+          "git_blob_sha1": "4783fe10ac3adce15ac8f358ef5462739852c569"
+        }
+      ]
+    },
+    {
+      "id": "qwen-aligner",
+      "kind": "huggingface",
+      "repo": "Qwen/Qwen3-ForcedAligner-0.6B",
+      "revision": "c7cbfc2048c462b0d63a45797104fc9db3ad62b7",
+      "files": [
+        {
+          "path": "chat_template.json",
+          "bytes": 1161,
+          "url": "https://huggingface.co/Qwen/Qwen3-ForcedAligner-0.6B/resolve/c7cbfc2048c462b0d63a45797104fc9db3ad62b7/chat_template.json",
+          "git_blob_sha1": "c44736493efd71ec96218cc626904698cdb13235"
+        },
+        {
+          "path": "config.json",
+          "bytes": 5982,
+          "url": "https://huggingface.co/Qwen/Qwen3-ForcedAligner-0.6B/resolve/c7cbfc2048c462b0d63a45797104fc9db3ad62b7/config.json",
+          "git_blob_sha1": "7b9883fe52d0ba896773687a7fdad38eacab062d"
+        },
+        {
+          "path": "generation_config.json",
+          "bytes": 115,
+          "url": "https://huggingface.co/Qwen/Qwen3-ForcedAligner-0.6B/resolve/c7cbfc2048c462b0d63a45797104fc9db3ad62b7/generation_config.json",
+          "git_blob_sha1": "b0a540032cf7b6b5ba1438d04ab69b7e787d9b8e"
+        },
+        {
+          "path": "merges.txt",
+          "bytes": 1671853,
+          "url": "https://huggingface.co/Qwen/Qwen3-ForcedAligner-0.6B/resolve/c7cbfc2048c462b0d63a45797104fc9db3ad62b7/merges.txt",
+          "git_blob_sha1": "31349551d90c7606f325fe0f11bbb8bd5fa0d7c7"
+        },
+        {
+          "path": "model.safetensors",
+          "bytes": 1835544544,
+          "url": "https://huggingface.co/Qwen/Qwen3-ForcedAligner-0.6B/resolve/c7cbfc2048c462b0d63a45797104fc9db3ad62b7/model.safetensors",
+          "sha256": "47831d0e82f96b20e9034dba01a075ee06436654719f6a68289e49f1b65ce0e7"
+        },
+        {
+          "path": "preprocessor_config.json",
+          "bytes": 330,
+          "url": "https://huggingface.co/Qwen/Qwen3-ForcedAligner-0.6B/resolve/c7cbfc2048c462b0d63a45797104fc9db3ad62b7/preprocessor_config.json",
+          "git_blob_sha1": "8f7f07346466d5d494ec0d4969d1c3d0190eed72"
+        },
+        {
+          "path": "tokenizer_config.json",
+          "bytes": 12666,
+          "url": "https://huggingface.co/Qwen/Qwen3-ForcedAligner-0.6B/resolve/c7cbfc2048c462b0d63a45797104fc9db3ad62b7/tokenizer_config.json",
+          "git_blob_sha1": "3df92df83b22342e36a7b11cf9a70de2a2996bec"
+        },
+        {
+          "path": "vocab.json",
+          "bytes": 2776833,
+          "url": "https://huggingface.co/Qwen/Qwen3-ForcedAligner-0.6B/resolve/c7cbfc2048c462b0d63a45797104fc9db3ad62b7/vocab.json",
+          "git_blob_sha1": "4783fe10ac3adce15ac8f358ef5462739852c569"
+        }
+      ]
+    },
+    {
+      "id": "vieneu-turbo",
+      "kind": "huggingface",
+      "repo": "pnnbao-ump/VieNeu-TTS-v3-Turbo",
+      "revision": "61b85e3d937fbbacb387714180e8182823512523",
+      "files": [
+        {
+          "path": "speaker_encoder.onnx",
+          "bytes": 28303423,
+          "url": "https://huggingface.co/pnnbao-ump/VieNeu-TTS-v3-Turbo/resolve/61b85e3d937fbbacb387714180e8182823512523/speaker_encoder.onnx",
+          "sha256": "a6ac6a63997761ae2997373e2ee1c47040854b4b759ea41ec48e4e42df0f4d73"
+        },
+        {
+          "path": "update/config.json",
+          "bytes": 2152,
+          "url": "https://huggingface.co/pnnbao-ump/VieNeu-TTS-v3-Turbo/resolve/61b85e3d937fbbacb387714180e8182823512523/update/config.json",
+          "git_blob_sha1": "0f5d73f1779b514b9cd5692faeeb438898aeb36f"
+        },
+        {
+          "path": "update/model.safetensors",
+          "bytes": 247974928,
+          "url": "https://huggingface.co/pnnbao-ump/VieNeu-TTS-v3-Turbo/resolve/61b85e3d937fbbacb387714180e8182823512523/update/model.safetensors",
+          "sha256": "119003a9e121760d1c3b9b50bd675bfde8d5f3de2b12641cf97a17d3883a5da7"
+        },
+        {
+          "path": "update/special_tokens_map.json",
+          "bytes": 1108,
+          "url": "https://huggingface.co/pnnbao-ump/VieNeu-TTS-v3-Turbo/resolve/61b85e3d937fbbacb387714180e8182823512523/update/special_tokens_map.json",
+          "git_blob_sha1": "7857da5dcab823f7487da44c8c91b73692da3a62"
+        },
+        {
+          "path": "update/tokenizer.json",
+          "bytes": 22320,
+          "url": "https://huggingface.co/pnnbao-ump/VieNeu-TTS-v3-Turbo/resolve/61b85e3d937fbbacb387714180e8182823512523/update/tokenizer.json",
+          "git_blob_sha1": "5c9785c19639481f69f407f8b96859f0ea0d65af"
+        },
+        {
+          "path": "update/tokenizer_config.json",
+          "bytes": 8617,
+          "url": "https://huggingface.co/pnnbao-ump/VieNeu-TTS-v3-Turbo/resolve/61b85e3d937fbbacb387714180e8182823512523/update/tokenizer_config.json",
+          "git_blob_sha1": "90be93d49d1629f8f1f802a9e8150447fff6d1a6"
+        }
+      ]
+    },
+    {
+      "id": "vieneu-turbo-onnx",
+      "kind": "huggingface",
+      "repo": "pnnbao-ump/VieNeu-TTS-v3-Turbo",
+      "revision": "61b85e3d937fbbacb387714180e8182823512523",
+      "files": [
+        {
+          "path": "config.json",
+          "bytes": 1553,
+          "url": "https://huggingface.co/pnnbao-ump/VieNeu-TTS-v3-Turbo/resolve/61b85e3d937fbbacb387714180e8182823512523/config.json",
+          "git_blob_sha1": "aa9c4e4550e8b9cf06ee47ad16009ef9609c8928"
+        },
+        {
+          "path": "onnx_update/config.json",
+          "bytes": 2152,
+          "url": "https://huggingface.co/pnnbao-ump/VieNeu-TTS-v3-Turbo/resolve/61b85e3d937fbbacb387714180e8182823512523/onnx_update/config.json",
+          "git_blob_sha1": "9d6c81dbafafaf833371207f5efe35664cb917ba"
+        },
+        {
+          "path": "onnx_update/tokenizer.json",
+          "bytes": 22320,
+          "url": "https://huggingface.co/pnnbao-ump/VieNeu-TTS-v3-Turbo/resolve/61b85e3d937fbbacb387714180e8182823512523/onnx_update/tokenizer.json",
+          "git_blob_sha1": "5c9785c19639481f69f407f8b96859f0ea0d65af"
+        },
+        {
+          "path": "onnx_update/vieneu_acoustic_cached.onnx",
+          "bytes": 7207223,
+          "url": "https://huggingface.co/pnnbao-ump/VieNeu-TTS-v3-Turbo/resolve/61b85e3d937fbbacb387714180e8182823512523/onnx_update/vieneu_acoustic_cached.onnx",
+          "sha256": "f631e3387c788c3d8b9a5ac5df94952af5bc4c4d1049ff8a751e76a246fff2d4"
+        },
+        {
+          "path": "onnx_update/vieneu_backbone_shared.data",
+          "bytes": 415319040,
+          "url": "https://huggingface.co/pnnbao-ump/VieNeu-TTS-v3-Turbo/resolve/61b85e3d937fbbacb387714180e8182823512523/onnx_update/vieneu_backbone_shared.data",
+          "sha256": "c7c072193db33d0542457e2612c7272c44c4279d1cafaf0aa4c379964911db2f"
+        },
+        {
+          "path": "onnx_update/vieneu_decode_step.onnx",
+          "bytes": 306134,
+          "url": "https://huggingface.co/pnnbao-ump/VieNeu-TTS-v3-Turbo/resolve/61b85e3d937fbbacb387714180e8182823512523/onnx_update/vieneu_decode_step.onnx",
+          "sha256": "bedc379cea61ea5d616312750d95ad3924e055856662d19187a889a5edc24ceb"
+        },
+        {
+          "path": "onnx_update/vieneu_prefill.onnx",
+          "bytes": 324499,
+          "url": "https://huggingface.co/pnnbao-ump/VieNeu-TTS-v3-Turbo/resolve/61b85e3d937fbbacb387714180e8182823512523/onnx_update/vieneu_prefill.onnx",
+          "sha256": "27f8b064f6b57b5448e95d095f1959588c005d614678045c2b97ecccf3b7a0f7"
+        },
+        {
+          "path": "onnx_update/vieneu_v3_heads.npz",
+          "bytes": 52219622,
+          "url": "https://huggingface.co/pnnbao-ump/VieNeu-TTS-v3-Turbo/resolve/61b85e3d937fbbacb387714180e8182823512523/onnx_update/vieneu_v3_heads.npz",
+          "sha256": "fb22484baa424bbb775133a6e5f0d00d6299b2b256fbe3312a864b85b9aed01e"
+        },
+        {
+          "path": "speaker_encoder.onnx",
+          "bytes": 28303423,
+          "url": "https://huggingface.co/pnnbao-ump/VieNeu-TTS-v3-Turbo/resolve/61b85e3d937fbbacb387714180e8182823512523/speaker_encoder.onnx",
+          "sha256": "a6ac6a63997761ae2997373e2ee1c47040854b4b759ea41ec48e4e42df0f4d73"
+        },
+        {
+          "path": "tokenizer.json",
+          "bytes": 22412,
+          "url": "https://huggingface.co/pnnbao-ump/VieNeu-TTS-v3-Turbo/resolve/61b85e3d937fbbacb387714180e8182823512523/tokenizer.json",
+          "git_blob_sha1": "cb6b8a77f8b1e767356fc5926b5d6d89f757ef90"
+        }
+      ]
+    },
+    {
+      "id": "moss-torch",
+      "kind": "huggingface",
+      "repo": "OpenMOSS-Team/MOSS-Audio-Tokenizer-Nano",
+      "revision": "6aa02b01e445cc585582cf0ba480bc3ea6c8dd68",
+      "files": [
+        {
+          "path": "__init__.py",
+          "bytes": 52,
+          "url": "https://huggingface.co/OpenMOSS-Team/MOSS-Audio-Tokenizer-Nano/resolve/6aa02b01e445cc585582cf0ba480bc3ea6c8dd68/__init__.py",
+          "git_blob_sha1": "be87d805388ff76659c35e7273e8c3687b55eeff"
+        },
+        {
+          "path": "config.json",
+          "bytes": 7385,
+          "url": "https://huggingface.co/OpenMOSS-Team/MOSS-Audio-Tokenizer-Nano/resolve/6aa02b01e445cc585582cf0ba480bc3ea6c8dd68/config.json",
+          "git_blob_sha1": "1789fbb15e81a782e83a726998b7c910aade93cf"
+        },
+        {
+          "path": "configuration_moss_audio_tokenizer.py",
+          "bytes": 19249,
+          "url": "https://huggingface.co/OpenMOSS-Team/MOSS-Audio-Tokenizer-Nano/resolve/6aa02b01e445cc585582cf0ba480bc3ea6c8dd68/configuration_moss_audio_tokenizer.py",
+          "git_blob_sha1": "2efd84a7f1b9682d530616e434b13b8dec560136"
+        },
+        {
+          "path": "model-00001-of-00001.safetensors",
+          "bytes": 87922568,
+          "url": "https://huggingface.co/OpenMOSS-Team/MOSS-Audio-Tokenizer-Nano/resolve/6aa02b01e445cc585582cf0ba480bc3ea6c8dd68/model-00001-of-00001.safetensors",
+          "sha256": "34d9880d805eecb21bde975202b1c256dbd0eb98c8680b9d3aeffd2bc6ac2f67"
+        },
+        {
+          "path": "model.safetensors.index.json",
+          "bytes": 34346,
+          "url": "https://huggingface.co/OpenMOSS-Team/MOSS-Audio-Tokenizer-Nano/resolve/6aa02b01e445cc585582cf0ba480bc3ea6c8dd68/model.safetensors.index.json",
+          "git_blob_sha1": "c1e82d52cc62a951fa73edf0df3980215c516832"
+        },
+        {
+          "path": "modeling_moss_audio_tokenizer.py",
+          "bytes": 138814,
+          "url": "https://huggingface.co/OpenMOSS-Team/MOSS-Audio-Tokenizer-Nano/resolve/6aa02b01e445cc585582cf0ba480bc3ea6c8dd68/modeling_moss_audio_tokenizer.py",
+          "git_blob_sha1": "17fc9d059a1dc0fede4cfd1dfed2cffaef70a4c1"
+        }
+      ]
+    },
+    {
+      "id": "moss-onnx",
+      "kind": "huggingface",
+      "repo": "OpenMOSS-Team/MOSS-Audio-Tokenizer-Nano-ONNX",
+      "revision": "ceff0d0749bfb3fa2d61149794ec6feef0d1e1ae",
+      "files": [
+        {
+          "path": "codec_browser_onnx_meta.json",
+          "bytes": 17036,
+          "url": "https://huggingface.co/OpenMOSS-Team/MOSS-Audio-Tokenizer-Nano-ONNX/resolve/ceff0d0749bfb3fa2d61149794ec6feef0d1e1ae/codec_browser_onnx_meta.json",
+          "git_blob_sha1": "886953a56489516b847b7c1c953bde063eb78faa"
+        },
+        {
+          "path": "moss_audio_tokenizer_decode_full.onnx",
+          "bytes": 681902,
+          "url": "https://huggingface.co/OpenMOSS-Team/MOSS-Audio-Tokenizer-Nano-ONNX/resolve/ceff0d0749bfb3fa2d61149794ec6feef0d1e1ae/moss_audio_tokenizer_decode_full.onnx",
+          "sha256": "0fbbafe3fd4afa2a019af5c5ced204af6e2d1db044fa40f021525d2aee95b4ac"
+        },
+        {
+          "path": "moss_audio_tokenizer_decode_shared.data",
+          "bytes": 44198912,
+          "url": "https://huggingface.co/OpenMOSS-Team/MOSS-Audio-Tokenizer-Nano-ONNX/resolve/ceff0d0749bfb3fa2d61149794ec6feef0d1e1ae/moss_audio_tokenizer_decode_shared.data",
+          "sha256": "e69d52e0f4e84ca27850557ee54face46632d3a5a16c89bd246c7c408466dcad"
+        },
+        {
+          "path": "moss_audio_tokenizer_decode_step.onnx",
+          "bytes": 351400,
+          "url": "https://huggingface.co/OpenMOSS-Team/MOSS-Audio-Tokenizer-Nano-ONNX/resolve/ceff0d0749bfb3fa2d61149794ec6feef0d1e1ae/moss_audio_tokenizer_decode_step.onnx",
+          "sha256": "9527c86a29e1837edec1f74db57d5eeaadb3a715af3382703566460afed25855"
+        },
+        {
+          "path": "moss_audio_tokenizer_encode.data",
+          "bytes": 44507136,
+          "url": "https://huggingface.co/OpenMOSS-Team/MOSS-Audio-Tokenizer-Nano-ONNX/resolve/ceff0d0749bfb3fa2d61149794ec6feef0d1e1ae/moss_audio_tokenizer_encode.data",
+          "sha256": "aa751265b2bab2887eac224484546b194875aa7494b607115439b3dc6b228a2c"
+        },
+        {
+          "path": "moss_audio_tokenizer_encode.onnx",
+          "bytes": 815775,
+          "url": "https://huggingface.co/OpenMOSS-Team/MOSS-Audio-Tokenizer-Nano-ONNX/resolve/ceff0d0749bfb3fa2d61149794ec6feef0d1e1ae/moss_audio_tokenizer_encode.onnx",
+          "sha256": "eadea4a645abdcf98714c7aead122ee2ce7da6e080f9f80b977cd1ca8e19473a"
+        }
+      ]
+    },
+    {
+      "id": "lama-onnx",
+      "kind": "huggingface",
+      "repo": "Carve/LaMa-ONNX",
+      "revision": "c3c0c9e468934d62e79c329e35d82dd09ff8c444",
+      "files": [
+        {
+          "path": "lama_fp32.onnx",
+          "bytes": 208044816,
+          "url": "https://huggingface.co/Carve/LaMa-ONNX/resolve/c3c0c9e468934d62e79c329e35d82dd09ff8c444/lama_fp32.onnx",
+          "sha256": "1faef5301d78db7dda502fe59966957ec4b79dd64e16f03ed96913c7a4eb68d6"
+        }
+      ]
+    },
+    {
+      "id": "bandit-erb48",
+      "kind": "http",
+      "revision": "zenodo:10160698/dnr-3s-erb48-l1snr",
+      "source_url": "https://zenodo.org/records/10160698",
+      "files": [
+        {
+          "path": "model.ckpt",
+          "bytes": 393210291,
+          "md5": "af4f36d425d346ddd51044e9d914a37e",
+          "url": "https://zenodo.org/api/records/10160698/files/dnr-3s-erb48-l1snr.ckpt/content"
+        }
+      ]
+    },
+    {
+      "id": "bandit-code",
+      "kind": "git",
+      "repo": "https://github.com/kwatcharasupat/bandit.git",
+      "revision": "840d5eb9ede59d64569c423244547e58cb00f647"
+    },
+    {
+      "id": "propainter-code",
+      "kind": "git",
+      "repo": "https://github.com/sczhou/ProPainter.git",
+      "revision": "e870e79321c31b733e2031af5aa2fb1fe3ac7eec"
+    },
+    {
+      "id": "rapidocr-v6",
+      "kind": "http",
+      "revision": "rapidocr:3.9.2/PP-OCRv6-small",
+      "source_url": "https://github.com/RapidAI/RapidOCR",
+      "files": [
+        {
+          "path": "det.onnx",
+          "bytes": null,
+          "sha256": "090f04abcd9d9a7498bc4ebf677e4cb9bdce1fe4197ddb7e529f1ef44e1ff94f",
+          "url": "https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.9.2/onnx/PP-OCRv6/det/PP-OCRv6_det_small.onnx"
+        },
+        {
+          "path": "rec.onnx",
+          "bytes": null,
+          "sha256": "6f327246b50388f3c176ae304bd95767ea6dc0c9ae92153ef8cbe210b3c14884",
+          "url": "https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.9.2/onnx/PP-OCRv6/rec/PP-OCRv6_rec_small.onnx"
+        },
+        {
+          "path": "cls.onnx",
+          "bytes": null,
+          "sha256": "e47acedf663230f8863ff1ab0e64dd2d82b838fceb5957146dab185a89d6215c",
+          "url": "https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.9.2/onnx/PP-OCRv4/cls/ch_ppocr_mobile_v2.0_cls_mobile.onnx"
+        }
+      ]
+    },
+    {
+      "id": "propainter-weights",
+      "kind": "http",
+      "revision": "ProPainter-release-v0.1.0",
+      "source_url": "https://github.com/sczhou/ProPainter/releases/tag/v0.1.0",
+      "integrity_note": "SHA-256 computed from official release files after TLS download and API size validation",
+      "files": [
+        {
+          "path": "ProPainter.pth",
+          "bytes": 157780510,
+          "sha256": "12c070c4b48f374c91d8a2a17851140b85c159621080989f9e191bbc18bd6591",
+          "url": "https://github.com/sczhou/ProPainter/releases/download/v0.1.0/ProPainter.pth"
+        },
+        {
+          "path": "raft-things.pth",
+          "bytes": 21108000,
+          "sha256": "fcfa4125d6418f4de95d84aec20a3c5f4e205101715a79f193243c186ac9a7e1",
+          "url": "https://github.com/sczhou/ProPainter/releases/download/v0.1.0/raft-things.pth"
+        },
+        {
+          "path": "recurrent_flow_completion.pth",
+          "bytes": 20348681,
+          "sha256": "22939a1a7900da878dbe1ccd011d646b1bfb30b8290039d8ff0e0c2fefbfd283",
+          "url": "https://github.com/sczhou/ProPainter/releases/download/v0.1.0/recurrent_flow_completion.pth"
+        }
+      ]
+    }
+  ]
+}

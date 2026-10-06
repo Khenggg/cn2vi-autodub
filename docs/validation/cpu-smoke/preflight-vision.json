@@ -1,0 +1,122 @@
+{
+  "schema_version": 1,
+  "created_at": "2026-10-06T01:09:38.678929+00:00",
+  "profile": "vision",
+  "require_cloud": false,
+  "readiness": "PENDING",
+  "environment": {
+    "python": "3.12.14",
+    "platform": "Windows-11-10.0.26200-SP0",
+    "executable": "D:\\Video\\.cache\\vision-env\\Scripts\\python.exe",
+    "torch": {
+      "torch": null,
+      "torchaudio": null,
+      "cuda_runtime": null,
+      "device": null,
+      "capability": null,
+      "arch_list": [],
+      "not_required": true
+    }
+  },
+  "checks": [
+    {
+      "name": "os",
+      "status": "PENDING",
+      "detail": "Windows-11-10.0.26200-SP0",
+      "expected": "Ubuntu 24.04"
+    },
+    {
+      "name": "python",
+      "status": "PASS",
+      "detail": "3.12.14",
+      "expected": "3.12.x",
+      "executable": "D:\\Video\\.cache\\vision-env\\Scripts\\python.exe"
+    },
+    {
+      "name": "ffmpeg",
+      "status": "PASS",
+      "detail": "ffmpeg version 8.1.1-full_build-www.gyan.dev Copyright (c) 2000-2026 the FFmpeg developers"
+    },
+    {
+      "name": "ffprobe",
+      "status": "PASS",
+      "detail": "ffprobe version 8.1.1-full_build-www.gyan.dev Copyright (c) 2007-2026 the FFmpeg developers"
+    },
+    {
+      "name": "ffmpeg_libass",
+      "status": "PASS",
+      "detail": "subtitles filter listed",
+      "available": true
+    },
+    {
+      "name": "ffmpeg_nvenc",
+      "status": "PASS",
+      "detail": "NVENC encoder is listed; runtime encoding was not tested",
+      "encoder_listed": true,
+      "runtime_encoding_tested": false
+    },
+    {
+      "name": "nvidia_smi",
+      "status": "PASS",
+      "detail": "GPU reported by nvidia-smi",
+      "gpu_name": "NVIDIA GeForce GTX 1650 Ti",
+      "total_mib": 4096,
+      "free_mib": 3099
+    },
+    {
+      "name": "gpu_memory",
+      "status": "PENDING",
+      "detail": "4096 MiB total, 3099 MiB free; need at least 15000 MiB total and 1800 MiB free",
+      "total_mib": 4096,
+      "free_mib": 3099,
+      "minimum_total_mib": 15000,
+      "minimum_free_mib": 1800
+    },
+    {
+      "name": "ram",
+      "status": "PENDING",
+      "detail": "25598787584 bytes total; need 28000000000 bytes",
+      "total_bytes": 25598787584,
+      "minimum_bytes": 28000000000
+    },
+    {
+      "name": "models_disk",
+      "status": "PENDING",
+      "detail": "5039820800 bytes free; need 100000000000 bytes",
+      "path": ".cache\\models",
+      "free_bytes": 5039820800,
+      "minimum_bytes": 100000000000
+    },
+    {
+      "name": "cache_disk",
+      "status": "PENDING",
+      "detail": "5039820800 bytes free; need 100000000000 bytes",
+      "path": ".cache\\model-cache",
+      "free_bytes": 5039820800,
+      "minimum_bytes": 100000000000
+    },
+    {
+      "name": "onnxruntime_cpu",
+      "status": "PASS",
+      "detail": "CPUExecutionProvider is available",
+      "version": "1.22.1",
+      "cpu_provider_available": true,
+      "available_providers": [
+        "AzureExecutionProvider",
+        "CPUExecutionProvider"
+      ]
+    },
+    {
+      "name": "model_manifest",
+      "status": "PASS",
+      "detail": "manifest file exists; model asset contents are validated by model_assets fetch",
+      "path": ".cache\\models\\lama-onnx\\model-manifest.json"
+    }
+  ],
+  "summary": {
+    "passed": 8,
+    "failed": 0,
+    "pending": 5,
+    "blocking_checks": []
+  }
+}

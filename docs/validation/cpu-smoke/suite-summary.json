@@ -1,0 +1,88 @@
+{
+  "schema_version": 1,
+  "plan": "D:\\Video\\.cache\\final-cpu-smoke\\suite.synthetic.json",
+  "status": "MEASURED",
+  "validation": "QUALITY_REVIEW_REQUIRED",
+  "corpus_kind": "synthetic_smoke",
+  "representative_quality_pass": false,
+  "hourly_rate_vnd": null,
+  "jobs": [
+    {
+      "id": "synthetic-ocr",
+      "stage": "ocr",
+      "status": "MEASURED",
+      "input": "D:\\Video\\.cache\\final-cpu-smoke\\synthetic-smoke.mp4",
+      "output": "D:\\Video\\.cache\\final-cpu-smoke\\reports\\ocr.json",
+      "elapsed_ms": 4707,
+      "report": "D:\\Video\\.cache\\final-cpu-smoke\\reports\\ocr.json",
+      "error_type": null,
+      "quality_evidence_missing": [
+        "labeled_polygons",
+        "fade_review"
+      ],
+      "quality_evidence": {
+        "status": "REVIEW_REQUIRED",
+        "roi_only": true,
+        "missing": [
+          "labeled_polygons",
+          "fade_review"
+        ]
+      },
+      "corpus_kind": "synthetic_smoke",
+      "representative_quality_pass": false,
+      "model_revision": "rapidocr:3.9.2/PP-OCRv6-small",
+      "weights_sha256": "e327bc1ce247685b3814ce27892fd209b44a37dcf9b43aaf062cbfe7306de45c"
+    },
+    {
+      "id": "synthetic-lama",
+      "stage": "inpaint",
+      "status": "MEASURED",
+      "input": "D:\\Video\\.cache\\final-cpu-smoke\\synthetic-smoke.mp4",
+      "output": "D:\\Video\\.cache\\final-cpu-smoke\\reports\\inpaint.json",
+      "elapsed_ms": 18162,
+      "report": "D:\\Video\\.cache\\final-cpu-smoke\\reports\\inpaint.json",
+      "error_type": null,
+      "quality_evidence_missing": [
+        "motion_flicker_review",
+        "residual_false_positive_review"
+      ],
+      "quality_evidence": {
+        "status": "REVIEW_REQUIRED",
+        "missing": [
+          "motion_flicker_review",
+          "residual_false_positive_review"
+        ]
+      },
+      "corpus_kind": "synthetic_smoke",
+      "representative_quality_pass": false,
+      "model_revision": "c3c0c9e468934d62e79c329e35d82dd09ff8c444+rapidocr:3.9.2/PP-OCRv6-small",
+      "weights_sha256": "a98e8351882630a70d1d632980d245b4bca039134333efa58b8d0ba2b2da73ef"
+    },
+    {
+      "id": "synthetic-tts",
+      "stage": "tts",
+      "status": "MEASURED",
+      "input": "D:\\Video\\.cache\\final-cpu-smoke\\synthetic-smoke.mp4",
+      "output": "D:\\Video\\.cache\\final-cpu-smoke\\reports\\tts.json",
+      "elapsed_ms": 7422,
+      "report": "D:\\Video\\.cache\\final-cpu-smoke\\reports\\tts.json",
+      "error_type": null,
+      "quality_evidence_missing": [
+        "pronunciation_human_rating"
+      ],
+      "quality_evidence": {
+        "status": "REVIEW_REQUIRED",
+        "missing": [
+          "pronunciation_human_rating"
+        ]
+      },
+      "corpus_kind": "synthetic_smoke",
+      "representative_quality_pass": false,
+      "model_revision": "61b85e3d937fbbacb387714180e8182823512523+ceff0d0749bfb3fa2d61149794ec6feef0d1e1ae",
+      "weights_sha256": "b8ccdc6d90eac03e67bbdc466d860d2bf35e0e0671c87b97f76577ae2331e5c6"
+    }
+  ],
+  "elapsed_ms": 30291,
+  "cost_vnd": null,
+  "smoke_check_status": "PASS"
+}

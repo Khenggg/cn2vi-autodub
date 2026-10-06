@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "kind": "synthetic_smoke",
+  "cases": [
+    {
+      "id": "one-second-synthetic-subtitle",
+      "source": "synthetic-smoke.mp4",
+      "source_sha256": "9c1b115517366ce9627e12746634e0b111f0d60fe02fecdd81d19cc771ad7862",
+      "start_ms": 0,
+      "end_ms": 1000,
+      "category": "subtitle_static",
+      "roi": {
+        "x": 0.1,
+        "y": 0.72,
+        "w": 0.8,
+        "h": 0.25
+      },
+      "tts_text": "Chạy mau! Đừng quay đầu lại.",
+      "target_ms": 2000
+    }
+  ],
+  "notice": "Synthetic frame, overlay text and sine audio are I/O smoke fixtures only."
+}

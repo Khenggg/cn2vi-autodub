@@ -5,7 +5,7 @@ $testRunRoot = Join-Path $projectRoot ('.cache\tests-' + [guid]::NewGuid().ToStr
 # A fresh workspace-local temp directory avoids shared Windows temp ACL issues.
 & .\.venv\Scripts\python.exe -m pytest -q --tb=short --basetemp=$testRunRoot -p no:cacheprovider
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-& .\.venv\Scripts\ruff.exe check src tests benchmarks
+& .\.venv\Scripts\ruff.exe check src tests benchmarks scripts
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 Push-Location -LiteralPath (Join-Path $projectRoot 'frontend')
 try {

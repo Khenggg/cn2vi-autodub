@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "kind": "synthetic_smoke",
+  "status": "SYNTHETIC_SMOKE_ONLY",
+  "representative_quality_pass": false,
+  "total_case_duration_ms": 1000,
+  "required_duration_ms": null,
+  "covered_categories": [
+    "subtitle_static"
+  ],
+  "missing_categories": [
+    "dark",
+    "music_loud",
+    "nonverbal",
+    "overlap",
+    "speech_clear",
+    "subtitle_motion"
+  ],
+  "case_count": 1,
+  "cases": [
+    {
+      "id": "one-second-synthetic-subtitle",
+      "source": "synthetic-smoke.mp4",
+      "source_sha256": "9c1b115517366ce9627e12746634e0b111f0d60fe02fecdd81d19cc771ad7862",
+      "source_duration_ms": 1000,
+      "start_ms": 0,
+      "end_ms": 1000,
+      "category": "subtitle_static"
+    }
+  ],
+  "errors": []
+}
