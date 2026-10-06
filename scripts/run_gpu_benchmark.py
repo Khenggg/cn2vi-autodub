@@ -69,12 +69,12 @@ def prepare_configs(video_path: Path, meta: dict) -> Path:
     }
     (cfg_dir / "asr.json").write_text(json.dumps(asr_cfg, indent=2), encoding="utf-8")
 
-    # 2. Bandit config: 1 window of 10s
+    # 2. Bandit config: 1 window of 30s (fader requires >= 25s)
     bandit_cfg = {
         "models_root": "/data/models",
         "cache_root": "/data/cache",
         "output_dir": str(RESULTS_DIR / "bandit_artifacts"),
-        "windows": [{"start_ms": 0, "end_ms": min(int(meta["duration_s"] * 1000), 10000)}],
+        "windows": [{"start_ms": 0, "end_ms": min(int(meta["duration_s"] * 1000), 30000)}],
         "device": "cuda:0",
         "batch_size": 1
     }
