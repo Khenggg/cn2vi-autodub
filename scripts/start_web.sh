@@ -35,6 +35,7 @@ start_server() {
 
     echo "[INFO] Starting CN2VI AutoDub Web UI..."
     cd "${REPO_DIR}"
+    export PYTHONPATH="${REPO_DIR}/src${PYTHONPATH:+:${PYTHONPATH}}"
     nohup "${PYTHON_BIN}" -m uvicorn autodub.main:create_app --factory \
         --host 127.0.0.1 --port 8080 --workers 1 \
         >> "${LOG_FILE}" 2>&1 &
