@@ -12,6 +12,10 @@ class Settings:
     workspace_quota_bytes: int = field(default_factory=lambda: int(os.getenv("WORKSPACE_QUOTA_BYTES", 80 * 1024**3)))
     max_chunk_bytes: int = 8 * 1024**2
     ffprobe_bin: str = field(default_factory=lambda: os.getenv("FFPROBE_BIN", "ffprobe"))
+    ffmpeg_bin: str = field(default_factory=lambda: os.getenv("FFMPEG_BIN", "ffmpeg"))
+    models_dir: Path = field(default_factory=lambda: Path(os.getenv("MODELS_DIR", "/data/models")).resolve())
+    venvs_dir: Path = field(default_factory=lambda: Path(os.getenv("VENVS_DIR", "/opt/autodub/venvs")).resolve())
+    enable_pipeline: bool = field(default_factory=lambda: os.getenv("ENABLE_PIPELINE", "true" if Path("/data/models").is_dir() else "false").lower() in ("1", "true", "yes"))
     cloud_rate: int = field(default_factory=lambda: int(os.getenv("CLOUD_RATE_VND_PER_HOUR", "6000")))
     gpu_safety_mb: int = field(default_factory=lambda: int(os.getenv("GPU_FREE_VRAM_SAFETY_MB", "1800")))
     frontend_dir: Path = field(default_factory=lambda: Path(__file__).resolve().parents[2] / "frontend" / "dist")

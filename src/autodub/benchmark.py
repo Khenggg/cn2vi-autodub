@@ -20,7 +20,7 @@ from autodub.media import probe_media
 from autodub.storage import atomic_json, sha256_file
 from autodub.system import gpu_status
 
-STAGES = ("probe", "asr", "align", "tts", "bandit", "ocr", "inpaint", "propainter")
+STAGES = ("probe", "asr", "align", "tts", "bandit", "ocr", "inpaint", "propainter", "translation")
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_ADAPTERS = {
     "asr": "autodub.adapters.qwen:run_asr",
@@ -30,6 +30,7 @@ DEFAULT_ADAPTERS = {
     "ocr": "autodub.adapters.ocr:run",
     "inpaint": "autodub.adapters.inpaint:run",
     "propainter": "autodub.adapters.propainter:run",
+    "translation": "autodub.adapters.local_translation:run",
 }
 
 

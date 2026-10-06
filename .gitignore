@@ -15,3 +15,5 @@ playwright-report/
 test-results/
 output/
 .playwright-cli/
+.pytest_temp*/
+uv.lock

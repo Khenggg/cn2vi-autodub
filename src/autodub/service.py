@@ -139,8 +139,11 @@ class Service:
             episode = self.require("episode", identifier)
             if worker_state != "ACCEPTING":
                 raise Conflict("Worker is drained; resume it first")
-            if episode["status"] == "CHECKPOINTED" and episode["next_stage"] == "ASR":
-                raise Conflict("ASR provider is not configured yet; media checkpoint is saved")
+            if episode["status"] == "CHECKPOINTED":
+                if not self.settings.enable_pipeline:
+                    raise Conflict("ASR provider is not configured yet; media checkpoint is saved")
+                self.db.transition(identifier, "QUEUED", "Pipeline processing queued", queue_requested=1)
+                return self.episode_detail(identifier)
             if episode["status"] != "QUEUED" or not episode["source_sha256"]:
                 raise Conflict("Episode must finish uploading before it can start")
             if not episode["queue_requested"]:

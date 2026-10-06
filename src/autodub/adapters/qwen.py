@@ -4,6 +4,7 @@ import wave
 from decimal import Decimal
 from pathlib import Path
 
+import autodub.media as media
 from autodub.adapters.common import (
     allocator_metrics,
     asset,
@@ -16,7 +17,6 @@ from autodub.adapters.common import (
 )
 from autodub.benchmedia import chunk_windows, extract_audio
 from autodub.contracts import Segment
-from autodub.media import probe_media
 from autodub.quality import cer, word_boundary_error
 from autodub.storage import atomic_json, sha256_file
 
@@ -26,7 +26,7 @@ def bounds(source: Path, config: dict) -> tuple[int, int]:
         with wave.open(str(source), "rb") as audio:
             duration = audio.getnframes() * 1000 // audio.getframerate()
     else:
-        duration = probe_media(source, config.get("ffprobe_bin", "ffprobe"))["duration_ms"]
+        duration = media.probe_media(source, config.get("ffprobe_bin", "ffprobe"))["duration_ms"]
     start, end = config.get("start_ms", 0), config.get("end_ms", duration)
     if any(not isinstance(v, int) or isinstance(v, bool) for v in (start, end)) or not 0 <= start < end <= duration:
         raise ValueError("Invalid benchmark source interval")
@@ -121,7 +121,7 @@ def run_alignment(source: Path, config: dict) -> dict:
     transcript = json.loads(Path(config["transcript_path"]).read_text(encoding="utf-8"))
     if transcript.get("schema_version") != 1 or transcript["source_sha256"] != sha256_file(source):
         raise ValueError("Transcript source hash mismatch")
-    source_duration = probe_media(source, config.get("ffprobe_bin", "ffprobe"))["duration_ms"]
+    source_duration = media.probe_media(source, config.get("ffprobe_bin", "ffprobe"))["duration_ms"]
     validated = [Segment.model_validate(payload) for payload in transcript["segments"]]
     if any(segment.end_ms > source_duration or segment.end_ms - segment.start_ms > 300000
            for segment in validated):

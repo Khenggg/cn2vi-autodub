@@ -111,6 +111,9 @@ class Scheduler:
                                duration_ms=metadata["duration_ms"], progress=0.05, next_stage="ASR", queue_requested=0)
             self.db.event(episode["id"], "CHECKPOINTED", "Preparation checkpoint saved",
                           {"stage_wall_ms": now_ms() - started, "provider_ready": False})
+        if self.settings.enable_pipeline:
+            from autodub.pipeline import Pipeline
+            Pipeline(self.db, self.settings).run(episode, metadata)
 
     def run(self):
         while not self.stop_event.is_set():

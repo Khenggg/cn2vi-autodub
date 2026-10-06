@@ -5,8 +5,11 @@ import './style.css';
 
 const labels: Record<string, string> = {
   UPLOADING: 'Đang tải lên', QUEUED: 'Sẵn sàng', PREPARING: 'Kiểm tra media',
-  CHECKPOINTED: 'Đã lưu checkpoint', FAILED: 'Cần thử lại', PREVIEW_READY: 'Chờ review',
+  CHECKPOINTED: 'Sẵn sàng lồng tiếng', FAILED: 'Cần thử lại', PREVIEW_READY: 'Chờ review',
   NEEDS_REVIEW: 'Cần kiểm tra', COMPLETED: 'Hoàn tất',
+  ASR: 'Nhận diện thoại (ASR)', ALIGNING: 'Căn chỉnh từ (Align)', TRANSLATING: 'Dịch offline Qwen',
+  SEPARATING: 'Tách BGM/SFX (BandIt)', TTS: 'Sinh giọng nói (VieNeu)', TIMING: 'Khớp khẩu hình',
+  AUDIO_MIX: 'Hòa trộn âm thanh', ENCODING: 'Xuất video final',
 };
 
 function App() {
@@ -201,10 +204,10 @@ function App() {
                 {active.episodes.map(episode => <tr key={episode.id}><td><div className="episode-name"><span>{String(episode.ordinal).padStart(2, '0')}</span><div><strong>{episode.filename}</strong><small>{bytes(episode.total_bytes)}{episode.issues.filter(i => !i.resolved).map(i => <span className="issue" key={i.id}>{i.details.message ?? i.code}</span>)}</small></div></div></td><td>{duration(episode.duration_ms)}</td>
                   <td><span className={`badge ${episode.status.toLowerCase()}`}>{episode.queue_requested && episode.status === 'QUEUED' ? 'Trong hàng đợi' : labels[episode.status] ?? episode.status}</span>{episode.next_stage && <small className="next-stage">Tiếp theo: {episode.next_stage}</small>}</td>
                   <td><div className="progress-cell"><progress max="1" value={episode.status === 'UPLOADING' ? episode.uploaded_bytes / episode.total_bytes : episode.progress}/><small>{Math.round((episode.status === 'UPLOADING' ? episode.uploaded_bytes / episode.total_bytes : episode.progress) * 100)}%</small></div></td>
-                  <td><div className="row-actions">{episode.status === 'QUEUED' && <button disabled={busy || !!episode.queue_requested || system?.worker_state !== 'ACCEPTING'} onClick={() => void action(() => post(`/episodes/${episode.id}/start`))}>Bắt đầu</button>}
+                  <td><div className="row-actions">{((episode.status === 'QUEUED' && !episode.queue_requested) || episode.status === 'CHECKPOINTED') && <button disabled={busy || system?.worker_state !== 'ACCEPTING'} onClick={() => void action(() => post(`/episodes/${episode.id}/start`))}>{episode.status === 'CHECKPOINTED' ? 'Lồng tiếng' : 'Bắt đầu'}</button>}
                     {episode.status === 'FAILED' && <button disabled={busy} onClick={() => void action(() => post(`/episodes/${episode.id}/retry`))}>Thử lại</button>}
                     {episode.status !== 'UPLOADING' && <button onClick={() => setSource(episode)}>Xem nguồn</button>}
-                    {episode.artifacts.map(artifact => <a className="button-link" key={artifact.id} href={`/api/download/${artifact.id}`} download>{artifact.kind === 'checkpoint' ? 'Checkpoint' : 'Tải xuống'}</a>)}
+                    {episode.artifacts.map(artifact => <a className="button-link" key={artifact.id} href={`/api/download/${artifact.id}`} download>{artifact.kind === 'checkpoint' ? 'Checkpoint' : artifact.kind === 'final_video' ? 'Video Final' : artifact.kind === 'preview_audio' ? 'Audio Mix' : 'Tải xuống'}</a>)}
                     <button className="text-button muted" aria-label={`Xóa tập ${episode.ordinal}`} disabled={busy || episode.status === 'PREPARING'} onClick={() => { if (confirm(`Xóa tập ${episode.ordinal} và tệp đã upload?`)) void action(() => api(`/episodes/${episode.id}`, { method: 'DELETE' })); }}>×</button></div></td></tr>)}
               </tbody></table>{!active.episodes.length && <p className="table-empty">Chưa có tập phim. Tải lên video đầu tiên để bắt đầu.</p>}</div>
             </> : <div className="glossary"><p>Thuật ngữ lưu theo Series. Sửa thủ công sẽ khóa tên; tập cũ chỉ được dịch lại khi bạn yêu cầu.</p><form onSubmit={saveTerm}><div><label htmlFor="zh">Tên / thuật ngữ tiếng Trung</label><input id="zh" value={zh} onChange={e => setZh(e.target.value)} required maxLength={200}/></div><div><label htmlFor="vi">Cách dịch tiếng Việt</label><input id="vi" value={vi} onChange={e => setVi(e.target.value)} required maxLength={300}/></div><button className="primary" disabled={busy}>Lưu thuật ngữ</button></form>

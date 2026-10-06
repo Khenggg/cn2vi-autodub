@@ -10,6 +10,7 @@ from autodub.benchmark import DEFAULT_ADAPTERS, STAGES, _read_config, main, run_
 def _fixture(monkeypatch, tmp_path):
     source = tmp_path / "source.mp4"
     source.write_bytes(b"fixture")
+    monkeypatch.setattr("autodub.media.probe_media", lambda *_: {"duration_ms": 1000})
     monkeypatch.setattr("autodub.benchmark.probe_media", lambda *_: {"duration_ms": 1000})
     monkeypatch.setattr("autodub.benchmark.gpu_status", lambda: {"available": False})
     monkeypatch.setattr("autodub.benchmark.Sampler.sample", lambda *_: None)
