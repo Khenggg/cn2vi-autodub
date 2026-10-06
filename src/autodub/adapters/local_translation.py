@@ -36,6 +36,11 @@ def word_budget(duration_ms: int) -> int:
 
 
 
+def _aliases(batch: list[Segment]) -> list[str]:
+    """Short batch-local ids; small models mangle long numeric ids when echoing them."""
+    return [f"s{index}" for index in range(1, len(batch) + 1)]
+
+
 class LocalTranslationError(RuntimeError):
     """Safe translation failure that does not expose model output or paths."""
 
@@ -96,10 +101,13 @@ def _parse_completion(segments: list[Segment], content: str,
     if not isinstance(decoded, dict) or set(decoded) != {"segments"} or not isinstance(decoded["segments"], list):
         raise LocalTranslationError("Local translation returned an invalid schema; batch rejected")
     translations: dict[str, dict] = {}
+    alias_to_id = dict(zip(_aliases(segments), (segment.id for segment in segments), strict=True))
     for item in decoded["segments"]:
         if not isinstance(item, dict) or set(item) != _OUTPUT_FIELDS:
             raise LocalTranslationError("Local translation returned invalid fields; batch rejected")
         identifier = item.get("id")
+        if isinstance(identifier, str):
+            identifier = alias_to_id.get(identifier, identifier)
         if not isinstance(identifier, str) or not identifier or identifier in translations:
             raise LocalTranslationError("Local translation returned duplicate or invalid ids; batch rejected")
         for field in _OUTPUT_FIELDS - {"id"}:
@@ -147,11 +155,11 @@ def _messages(batch: list[Segment], glossary: dict[str, str], config: dict) -> l
                          if any(zh in segment.zh_text for segment in batch)}
     user = {
         "locked_glossary_zh_to_vi": relevant_glossary,
-        "segments": [{"id": segment.id, "zh_text": segment.zh_text,
+        "segments": [{"id": alias, "zh_text": segment.zh_text,
                       "target_duration_ms": segment.end_ms - segment.start_ms,
                       "max_vietnamese_words": word_budget(segment.end_ms - segment.start_ms),
                       "nearby_context": _context_for(config, segment.id)}
-                     for segment in batch],
+                     for alias, segment in zip(_aliases(batch), batch, strict=True)],
     }
     return [{"role": "system", "content": system},
             {"role": "user", "content": json.dumps(user, ensure_ascii=False, separators=(",", ":"))}]
