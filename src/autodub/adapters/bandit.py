@@ -50,8 +50,9 @@ def run(source: Path, config: dict) -> dict:
     # This checkpoint is trusted only after upstream checksum verification in asset().
     checkpoint = torch.load(weights / "model.ckpt", map_location="cpu", weights_only=False)
     model = LightningSystem(config=configuration["system"], attach_fader=True)
-    loaded = model.load_state_dict(checkpoint["state_dict"])
-    if loaded.missing_keys or loaded.unexpected_keys:
+    loaded = model.load_state_dict(checkpoint["state_dict"], strict=False)
+    missing = [k for k in loaded.missing_keys if k != "fader.standard_window"]
+    if missing or loaded.unexpected_keys:
         raise ValueError("Bandit checkpoint does not match the pinned ERB48 model")
     model.to(device).eval()
     synchronize(torch, device)
