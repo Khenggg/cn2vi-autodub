@@ -188,27 +188,63 @@ def main():
     env["TORCH_HOME"] = "/data/cache/torch"
     env["XDG_CACHE_HOME"] = "/data/cache"
 
+    summary_path = RESULTS_DIR / "suite_summary.json"
+    if summary_path.is_file():
+        summary_path.unlink()
+
     cmd = [
         VENVS["core"], "-m", "autodub.bench_suite",
         "--plan", str(plan_path),
-        "--summary", str(RESULTS_DIR / "suite_summary.json")
+        "--summary", str(summary_path)
     ]
     if args.dry_run:
         cmd.append("--dry-run")
 
+    import threading
+    stop_monitor = threading.Event()
+    def monitor_progress():
+        last_states = {}
+        while not stop_monitor.is_set():
+            if summary_path.is_file():
+                try:
+                    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+                    for job in summary.get("jobs", []):
+                        jid = job.get("id")
+                        st = job.get("status")
+                        if jid and st != last_states.get(jid):
+                            last_states[jid] = st
+                            if st == "RUNNING":
+                                print(f"  [RUNNING] {jid} ({job.get('stage')})...", flush=True)
+                            elif st in {"MEASURED", "READY"}:
+                                ms = job.get("elapsed_ms", 0)
+                                print(f"  [OK] {jid} ({job.get('stage')}) finished in {ms/1000:.2f}s", flush=True)
+                            elif st in {"FAILED", "TIMED_OUT"}:
+                                print(f"  [FAIL] {jid} ({job.get('stage')}): {job.get('error_type')}", flush=True)
+                except Exception:
+                    pass
+            stop_monitor.wait(1.5)
+
+    monitor_thread = threading.Thread(target=monitor_progress, daemon=True)
+    monitor_thread.start()
+
     print("\n--- Starting Benchmark Execution ---")
     start_time = time.time()
-    res = subprocess.run(cmd, env=env)
-    elapsed = time.time() - start_time
+    try:
+        res = subprocess.run(cmd, env=env)
+    finally:
+        stop_monitor.set()
+        monitor_thread.join(timeout=2)
 
+    elapsed = time.time() - start_time
     print(f"\n--- Benchmark Finished in {elapsed:.2f}s (Exit code: {res.returncode}) ---")
 
     # Read and print summary
-    summary_path = RESULTS_DIR / "suite_summary.json"
     if summary_path.is_file():
         summary = json.loads(summary_path.read_text(encoding="utf-8"))
-        print(f"Overall Status: {summary.get('status')}")
-        print("\nStage Results:")
+        print(f"\nOverall Status: {summary.get('status')}")
+        print("\nStage Results Table:")
+        print(f"  {'Status':<10} {'Job ID':<18} {'Stage':<10} {'Time (s)':<10} {'Peak VRAM':<15} {'Peak RAM':<12}")
+        print("  " + "-" * 75)
         for job in summary.get("jobs", []):
             job_id = job.get("id")
             stage = job.get("stage")
@@ -216,7 +252,21 @@ def main():
             elapsed_ms = job.get("elapsed_ms", 0)
             peak_gpu_mb = job.get("peak_gpu_mb")
             peak_ram_mb = round(job.get("peak_ram_bytes", 0) / (1024 * 1024), 1)
-            print(f"  [{status}] {job_id:<15} ({stage}): {elapsed_ms/1000:>6.2f}s | Peak VRAM: {peak_gpu_mb or 'N/A'} MB | Peak RAM: {peak_ram_mb} MB")
+            vram_str = f"{peak_gpu_mb} MB" if peak_gpu_mb else "N/A"
+            ram_str = f"{peak_ram_mb} MB"
+            print(f"  {status:<10} {job_id:<18} {stage:<10} {elapsed_ms/1000:>8.2f}s  {vram_str:>12}  {ram_str:>10}")
+
+            if status == "FAILED":
+                rep_path = Path(job.get("report", ""))
+                if rep_path.is_file():
+                    try:
+                        rep = json.loads(rep_path.read_text(encoding="utf-8"))
+                        err_msg = rep.get("error_message") or rep.get("error_type")
+                        if err_msg:
+                            print(f"    --> Error Details: {err_msg}")
+                    except Exception:
+                        pass
+        print("  " + "-" * 75)
 
     sys.exit(res.returncode)
 

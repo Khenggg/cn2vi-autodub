@@ -4,7 +4,11 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
-VIDEO_PATH="${1:-/data/uploads/3b998daa3f9c400db25035bfb1c6707b/66a0a891f9884195a5782eb39ed4114f/source.mp4}"
+VIDEO_PATH="/data/uploads/3b998daa3f9c400db25035bfb1c6707b/66a0a891f9884195a5782eb39ed4114f/source.mp4"
+if [ $# -gt 0 ] && [ "${1:0:2}" != "--" ]; then
+    VIDEO_PATH="$1"
+    shift
+fi
 
 echo "========================================================"
 echo "    CN2VI AutoDub - Phase 0 GPU Benchmark Runner        "
