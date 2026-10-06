@@ -1,32 +1,22 @@
 # GPU cloud benchmark runbook
 
-This runbook prepares an Ubuntu 24.04 GPU host for the pinned benchmark profiles. It does not provision or terminate cloud machines, fetch model weights, or start a benchmark automatically. Check provider billing and stop the VM yourself when the run is complete.
+The primary host setup is the self-extracting installer. It installs the pinned environments, fetches/verifies the locked assets and runs cloud preflight; it does not create or terminate a VM or start benchmark jobs. Review [automatic cloud setup](AUTOMATIC_CLOUD_SETUP.md) for package creation, transfer and first run. Check provider billing and stop the VM yourself when the run is complete.
 
-## 1. Bootstrap the host
-
-This checkout can also be transferred without a Git hosting remote. After committing the prepared code, run `scripts/package_cloud.ps1` on Windows. It creates `.cache/cn2vi-cloud.bundle` and a SHA-256 sidecar from the committed branch, without model weights, environment folders or local caches. Transfer the bundle and sidecar to the host, then verify and clone there:
+For the current manual transfer workflow, commit all prepared changes on Windows and run `scripts/package_cloud.ps1`. It builds the frontend and creates `.cache/cn2vi-cloud-setup.run` plus its SHA-256 sidecar; the one `.run` contains the Git bundle and built frontend. Transfer that file to the host and optionally verify transfer integrity:
 
 ```bash
-cd /data/transfer
-sha256sum -c cn2vi-cloud.bundle.sha256
-git clone cn2vi-cloud.bundle ~/cn2vi-autodub
-cd ~/cn2vi-autodub
+sha256sum -c cn2vi-cloud-setup.run.sha256
+bash cn2vi-cloud-setup.run --dry-run
+bash cn2vi-cloud-setup.run
 ```
 
-The host needs Git before cloning; provider images usually supply it, or install Git through apt first. Video/corpus and model assets are transferred/fetched separately. Rebuild the bundle after any later code change.
+There is no public hosting URL yet. Copy the file to the host manually. The embedded digest checks payload integrity but is not a publisher signature. The host must be Ubuntu 24.04 x86_64 with a working NVIDIA driver. Setup installs Git, certificates and Python 3.12, then calls `cloud_setup.sh` to install environments, fetch and verify model assets, and run preflight. It does not install NVIDIA drivers, reboot, create/stop cloud machines, or run benchmarks. Default roots are `/data`, `/opt/autodub/venvs`, and `/data/autodub/project`; see the linked setup guide to override them. Keep at least 28 GB RAM and 100 GB free disk for the RTX 5060 Ti 16 GB reference configuration.
 
-Start from a clean Ubuntu 24.04 image with Python 3.12, a Blackwell RTX 5060 Ti 16 GB GPU, at least 28 GB decimal system RAM, and at least 100 GB decimal free disk on the model/cache volume. Clone this repository onto the instance and run:
+The former separate Git bundle flow remains available for manual diagnostics only. `scripts/package_cloud.ps1 -BundleOnly` creates `.cache/cn2vi-cloud.bundle` and its sidecar; after verifying the transfer, clone it with Git, copy the matching built frontend, and run the documented scripts from that checkout. Do not mix a bundle from one commit with a frontend from another.
 
-```bash
-cd /path/to/D-Video
-bash scripts/cloud_bootstrap.sh
-```
+The sections below retain the step-by-step manual diagnostics. The installer already fetches and verifies assets and runs each profile preflight; do not repeat these steps when the setup journal reports `READY`.
 
-The script requests `sudo` for apt and dedicated data/venv directories. It installs FFmpeg, Git, Latin and CJK fonts, `tini`, and Python venv support, then creates a core environment and isolated `asr`, `tts`, `vision`, and `bandit` environments. Core installs the exact-version-pinned `requirements.lock`; this file does not carry hashes. Model profiles install the pinned CUDA 12.8 PyTorch pair first where applicable, then their hash-checked `requirements/bench-<profile>.txt` lock and a source path file for this checkout. Bootstrap checks `pip check` and exact torch 2.8.0, torchaudio 2.8.0, CUDA 12.8 wheel metadata in the torch profiles. Vision stays ONNX CPU and verifies `CPUExecutionProvider` without installing torch. Re-running updates environments and preserves existing data. It does not call cloud APIs or remove anything.
-
-Set `AUTODUB_DATA_ROOT` and/or `AUTODUB_VENV_ROOT` before invoking the script to use different mount points. The defaults are `/data` and `/opt/autodub/venvs`. Models, caches, and reports use `/data/models`, `/data/cache`, and `/data/results` respectively.
-
-## 2. Fetch pinned model assets
+## Manual diagnostics: fetch pinned model assets
 
 Weight transfer is a separate, potentially large and metered step. Review the lock file and required disk capacity before fetching. Run the repository asset fetcher from the core environment:
 
@@ -38,7 +28,7 @@ Weight transfer is a separate, potentially large and metered step. Review the lo
 
 The fetch command is expected to verify pinned revisions and checksums. Its success confirms files match the lock; it does not establish inference quality or GPU readiness. Keep API credentials in the environment or an approved secret store. Do not paste them into command arguments or reports.
 
-## 3. Run preflight in each profile environment
+## Manual diagnostics: run preflight in each profile environment
 
 Run the cloud gate from every isolated environment that will execute a model job:
 
@@ -70,7 +60,7 @@ Exit code `2` means a cloud gate is blocked. Read each report's `checks` and fix
 
 Preflight checks Ubuntu 24.04/Python 3.12, FFmpeg/FFprobe and the `subtitles` filter, NVENC encoder listing, GPU memory, system RAM, model/cache disk, pinned PyTorch versions where used, a small CUDA tensor allocation/operation, and both GPU compute capability `12.0` and PyTorch `sm_120` support. A listed NVENC encoder is only a build capability; this preflight does not perform a video encode. CUDA smoke success plus `nvidia-smi` alone does not claim Blackwell readiness.
 
-## 4. Run benchmark jobs in the matching environment
+## Manual diagnostics: run benchmark jobs in the matching environment
 
 Use a suite plan with a per-job `python` path so each process uses the profile environment installed for that model. Copy `benchmarks/suite.example.json`, then set each model job's interpreter to `/opt/autodub/venvs/asr/bin/python`, `tts/bin/python`, `vision/bin/python`, or `bandit/bin/python` as appropriate. Keep input, config, adapter, output paths, and measured model settings explicit in the plan. For example:
 

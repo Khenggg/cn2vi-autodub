@@ -31,3 +31,9 @@ Ngày: 06/10/2026, Asia/Saigon. Máy local Windows 11, Python 3.12.14, Node 24.1
 - Graph MCP đã được thử cho architecture/search/trace; sau khi transport server đóng, những file mới chưa vào graph đầy đủ. Đọc exact files và kiểm tra tests/diff được dùng để tiếp tục. Kết quả graph cũ không được coi là blast radius cuối của những adapters mới.
 
 Providers chưa tích hợp vào scheduler/web. Kế hoạch tiếp theo và điều kiện bắt đầu thuê GPU ở [PRE_GPU_READINESS](PRE_GPU_READINESS.md).
+
+## Bộ cài cloud tự động
+
+Bộ cài `.run` chứa source Git bundle và frontend đã build; tự xác minh/giải nén, cài dependencies, tải/verify 10 asset groups GPU và chạy preflight bốn profiles. HTTP downloader có retry/resume. Tests có fixture Git thật và shell giả lập; ghi nhận đầy đủ cả lỗi cách ly test WSL đã xảy ra và đã sửa tại [AUTOMATIC_SETUP_VALIDATION](validation/AUTOMATIC_SETUP_VALIDATION.md). Chưa chạy bộ cài trên host GPU thật của người dùng.
+
+Kiểm tra cuối: **178 tests passed**, một warning Starlette/httpx; Ruff, TypeScript/Vite build và cú pháp Bash/PowerShell đạt. Tests verify checkout/extract thực trong fixture offline và dry-run của file installer tự chứa. Không coi journal READY giả lập là kết quả setup host GPU.

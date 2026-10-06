@@ -84,6 +84,8 @@ Test bao phủ auth/CSRF, upload resume/offset/hash và crash rename, state mach
 
 OCR, LaMa và TTS ONNX đã chạy trên CPU với clip tổng hợp. Clip này chỉ xác minh đường chạy; chất lượng phim thật, GPU và mục tiêu chi phí chưa được xác nhận. Xem [CPU smoke](docs/CPU_SMOKE.md), [chuẩn bị corpus](docs/BENCHMARK_CORPUS.md), [sinh suite](docs/BENCHMARK_PLAN.md), [cloud runbook](docs/CLOUD_RUNBOOK.md) và [điểm chuyển sang GPU](docs/PRE_GPU_READINESS.md).
 
-Cloud bootstrap dành cho Ubuntu 24.04/Python 3.12, reference RTX 5060 Ti 16 GB. Tạo plan trên máy sẽ chạy benchmark để đường dẫn media/interpreter đúng. Các bước bootstrap, tải weights, preflight và inference tách riêng; repo không tự thuê hoặc tắt máy cloud.
+Cloud setup dành cho Ubuntu 24.04 x86_64/Python 3.12, reference RTX 5060 Ti 16 GB. [Bộ cài một file](docs/AUTOMATIC_CLOUD_SETUP.md) tự giải nén code/giao diện, cài môi trường, tải/kiểm tra weights và chạy preflight. Tạo bằng `scripts/package_cloud.ps1`, chuyển `.cache/cn2vi-cloud-setup.run` sang cloud rồi chạy `bash cn2vi-cloud-setup.run`. `--dry-run` chỉ xem kế hoạch. Tải HTTP có retry/resume và chỉ niêm phong model khi checksum khớp. Không cần Node/npm trên cloud; NVIDIA driver phải hoạt động sẵn.
+
+Tạo plan trên máy sẽ chạy benchmark để đường dẫn media/interpreter đúng. Benchmark, API key và video thật được cấu hình sau khi setup thành công; repo không tự thuê hoặc tắt máy cloud. Nếu đã có checkout, `bash scripts/cloud_setup.sh` chạy cùng chuỗi setup; các lệnh riêng trong runbook vẫn có thể dùng để chẩn đoán.
 
 Tài liệu framework tham khảo: [FastAPI security](https://fastapi.tiangolo.com/tutorial/security/), [Vite guide](https://vite.dev/guide/), [Python SQLite](https://docs.python.org/3/library/sqlite3.html), [Qwen3-ASR upstream](https://github.com/QwenLM/Qwen3-ASR).

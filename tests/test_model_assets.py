@@ -2,6 +2,7 @@ import hashlib
 import io
 import json
 import sys
+import urllib.error
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -15,6 +16,16 @@ from autodub.model_assets import (
     main,
     manifest_digest,
 )
+
+
+class FakeResponse(io.BytesIO):
+    def __init__(self, body: bytes, *, status: int = 200, headers: dict | None = None):
+        super().__init__(body)
+        self.status = status
+        self.headers = headers or {}
+
+    def getcode(self):
+        return self.status
 
 
 def _write_manifest(folder: Path, entries: list[tuple[str, bytes]], *, digest: str | None = None):
@@ -92,7 +103,7 @@ def test_partial_download_never_becomes_an_asset_or_manifest(tmp_path, monkeypat
 
     def fake_urlopen(_request, timeout):
         assert timeout == 120
-        return io.BytesIO(b"partial")
+        return FakeResponse(b"partial", headers={"Content-Length": "7"})
 
     monkeypatch.setattr("autodub.model_assets.urllib.request.urlopen", fake_urlopen)
     spec = {"id": "tiny-model", "revision": "http-source", "kind": "http", "files": [
@@ -102,6 +113,242 @@ def test_partial_download_never_becomes_an_asset_or_manifest(tmp_path, monkeypat
         fetch_asset(spec, root)
     assert not (root / "tiny-model" / "weights.bin").exists()
     assert not (root / "tiny-model" / "model-manifest.json").exists()
+
+
+def _http_spec(content: bytes, *, url="https://models.example/weights.bin"):
+    return {"id": "tiny-model", "revision": "http-source", "kind": "http", "files": [
+        {"path": "weights.bin", "url": url, "bytes": len(content),
+         "sha256": hashlib.sha256(content).hexdigest()}]}
+
+
+def test_http_download_resumes_partial_with_verified_content_range(tmp_path, monkeypatch):
+    root = tmp_path / "models"
+    root.mkdir()
+    content = b"verified-data"
+    temporary = root / "tiny-model" / "weights.bin.part"
+    temporary.parent.mkdir()
+    temporary.write_bytes(content[:4])
+    calls = []
+
+    def fake_urlopen(request, timeout):
+        calls.append((request, timeout))
+        assert request.get_header("Range") == f"bytes={len(content[:4])}-"
+        return FakeResponse(content[4:], status=206, headers={
+            "Content-Range": f"bytes 4-{len(content) - 1}/{len(content)}",
+            "Content-Length": str(len(content) - 4),
+        })
+
+    monkeypatch.setattr("autodub.model_assets.urllib.request.urlopen", fake_urlopen)
+    manifest = fetch_asset(_http_spec(content), root)
+    target = root / "tiny-model" / "weights.bin"
+    assert target.read_bytes() == content
+    assert not temporary.exists()
+    assert len(calls) == 1 and calls[0][1] == 120
+    assert manifest["files"][0]["sha256"] == hashlib.sha256(content).hexdigest()
+
+
+def test_http_server_ignoring_range_overwrites_partial_cleanly(tmp_path, monkeypatch):
+    root = tmp_path / "models"
+    root.mkdir()
+    content = b"complete-file"
+    temporary = root / "tiny-model" / "weights.bin.part"
+    temporary.parent.mkdir()
+    temporary.write_bytes(b"bad-prefix")
+    calls = []
+
+    def fake_urlopen(request, timeout):
+        calls.append(request.get_header("Range"))
+        return FakeResponse(content, status=200, headers={"Content-Length": str(len(content))})
+
+    monkeypatch.setattr("autodub.model_assets.urllib.request.urlopen", fake_urlopen)
+    fetch_asset(_http_spec(content), root)
+    assert calls == [f"bytes={len(b'bad-prefix')}-"]
+    assert (root / "tiny-model" / "weights.bin").read_bytes() == content
+
+
+def test_complete_verified_partial_is_promoted_without_a_request(tmp_path, monkeypatch):
+    root = tmp_path / "models"
+    root.mkdir()
+    content = b"already-downloaded"
+    temporary = root / "tiny-model" / "weights.bin.part"
+    temporary.parent.mkdir()
+    temporary.write_bytes(content)
+    monkeypatch.setattr("autodub.model_assets.urllib.request.urlopen",
+                        lambda *_args, **_kwargs: pytest.fail("verified partial should be promoted locally"))
+    fetch_asset(_http_spec(content), root)
+    assert (root / "tiny-model" / "weights.bin").read_bytes() == content
+    assert not temporary.exists()
+
+
+def test_existing_verified_asset_is_reused_without_a_request(tmp_path, monkeypatch):
+    root = tmp_path / "models"
+    root.mkdir()
+    content = b"already-verified"
+    target = root / "tiny-model" / "weights.bin"
+    target.parent.mkdir()
+    target.write_bytes(content)
+    monkeypatch.setattr("autodub.model_assets.urllib.request.urlopen",
+                        lambda *_args, **_kwargs: pytest.fail("verified asset should be reused"))
+    manifest = fetch_asset(_http_spec(content), root)
+    assert target.read_bytes() == content
+    assert manifest["files"][0]["sha256"] == hashlib.sha256(content).hexdigest()
+
+
+@pytest.mark.parametrize("status", [429, 503])
+def test_http_transient_status_retries_without_logging_upstream_url(tmp_path, monkeypatch, status):
+    root = tmp_path / "models"
+    root.mkdir()
+    content = b"retry-me"
+    spec = _http_spec(content, url="https://models.example/file?token=SECRET")
+    attempts, sleeps = [], []
+
+    def fake_urlopen(request, timeout):
+        attempts.append(request.full_url)
+        if len(attempts) == 1:
+            raise urllib.error.HTTPError(request.full_url, status, "upstream details", {}, io.BytesIO())
+        return FakeResponse(content, headers={"Content-Length": str(len(content))})
+
+    monkeypatch.setattr("autodub.model_assets.urllib.request.urlopen", fake_urlopen)
+    monkeypatch.setattr("autodub.model_assets.time.sleep", sleeps.append)
+    fetch_asset(spec, root)
+    assert len(attempts) == 2
+    assert sleeps == [0.1]
+    assert (root / "tiny-model" / "weights.bin").read_bytes() == content
+
+
+def test_http_network_failure_retries_and_resumes(tmp_path, monkeypatch):
+    root = tmp_path / "models"
+    root.mkdir()
+    content = b"network-retry"
+    attempts, sleeps = [], []
+
+    def fake_urlopen(request, timeout):
+        attempts.append(request.get_header("Range"))
+        if len(attempts) == 1:
+            raise urllib.error.URLError("private connection detail")
+        return FakeResponse(content, headers={"Content-Length": str(len(content))})
+
+    monkeypatch.setattr("autodub.model_assets.urllib.request.urlopen", fake_urlopen)
+    monkeypatch.setattr("autodub.model_assets.time.sleep", sleeps.append)
+    fetch_asset(_http_spec(content), root)
+    assert attempts == [None, None]
+    assert sleeps == [0.1]
+    assert (root / "tiny-model" / "weights.bin").read_bytes() == content
+
+
+def test_http_retries_are_bounded_and_errors_do_not_expose_url(tmp_path, monkeypatch):
+    root = tmp_path / "models"
+    root.mkdir()
+    spec = _http_spec(b"body", url="https://models.example/file?token=SECRET")
+    attempts, sleeps = [], []
+
+    def always_unavailable(request, timeout):
+        attempts.append(request.full_url)
+        raise urllib.error.HTTPError(request.full_url, 503, "secret details", {}, io.BytesIO())
+
+    monkeypatch.setattr("autodub.model_assets.urllib.request.urlopen", always_unavailable)
+    monkeypatch.setattr("autodub.model_assets.time.sleep", sleeps.append)
+    with pytest.raises(RuntimeError) as error:
+        fetch_asset(spec, root)
+    assert len(attempts) == 3
+    assert len(sleeps) == 2
+    assert "SECRET" not in str(error.value)
+    assert not (root / "tiny-model" / "model-manifest.json").exists()
+
+
+def test_nontransient_http_error_is_sanitized_and_not_retried(tmp_path, monkeypatch):
+    root = tmp_path / "models"
+    root.mkdir()
+    spec = _http_spec(b"body", url="https://models.example/file?token=SECRET")
+    calls = []
+
+    def not_found(request, timeout):
+        calls.append(request.full_url)
+        raise urllib.error.HTTPError(request.full_url, 404, "private upstream details", {}, io.BytesIO())
+
+    monkeypatch.setattr("autodub.model_assets.urllib.request.urlopen", not_found)
+    with pytest.raises(ValueError) as error:
+        fetch_asset(spec, root)
+    assert len(calls) == 1
+    assert "SECRET" not in str(error.value)
+    assert "private upstream details" not in str(error.value)
+    assert not (root / "tiny-model" / "model-manifest.json").exists()
+
+
+def test_http_resume_rejects_wrong_content_range_before_append(tmp_path, monkeypatch):
+    root = tmp_path / "models"
+    root.mkdir()
+    content = b"expected"
+    temporary = root / "tiny-model" / "weights.bin.part"
+    temporary.parent.mkdir()
+    temporary.write_bytes(content[:3])
+
+    def wrong_range(_request, timeout):
+        return FakeResponse(content[3:], status=206, headers={
+            "Content-Range": f"bytes 2-{len(content) - 1}/{len(content)}",
+            "Content-Length": str(len(content) - 2),
+        })
+
+    monkeypatch.setattr("autodub.model_assets.urllib.request.urlopen", wrong_range)
+    with pytest.raises(ValueError, match="range does not match"):
+        fetch_asset(_http_spec(content), root)
+    assert temporary.read_bytes() == content[:3]
+    assert not (root / "tiny-model" / "weights.bin").exists()
+    assert not (root / "tiny-model" / "model-manifest.json").exists()
+
+
+def test_interrupted_range_body_resumes_at_actual_partial_offset(tmp_path, monkeypatch):
+    root = tmp_path / "models"
+    root.mkdir()
+    content = b"resume-the-tail"
+    splits = (5, 10)
+    calls = []
+
+    def fake_urlopen(request, timeout):
+        start = int(request.get_header("Range").removeprefix("bytes=").removesuffix("-")) \
+            if request.get_header("Range") else 0
+        calls.append(start)
+        if len(calls) == 1:
+            # A transport EOF before the declared Content-Range is retried from actual bytes received.
+            return FakeResponse(content[:splits[0]], status=206, headers={
+                "Content-Range": f"bytes 0-{len(content) - 1}/{len(content)}",
+                "Content-Length": str(len(content)),
+            })
+        return FakeResponse(content[start:], status=206, headers={
+            "Content-Range": f"bytes {start}-{len(content) - 1}/{len(content)}",
+            "Content-Length": str(len(content) - start),
+        })
+
+    monkeypatch.setattr("autodub.model_assets.urllib.request.urlopen", fake_urlopen)
+    monkeypatch.setattr("autodub.model_assets.time.sleep", lambda *_: None)
+    fetch_asset(_http_spec(content), root)
+    assert calls == [0, splits[0]]
+    assert (root / "tiny-model" / "weights.bin").read_bytes() == content
+
+
+def test_http_integrity_failure_never_promotes_or_writes_manifest(tmp_path, monkeypatch):
+    root = tmp_path / "models"
+    root.mkdir()
+    spec = _http_spec(b"expected")
+    monkeypatch.setattr("autodub.model_assets.urllib.request.urlopen", lambda *_args, **_kwargs:
+                        FakeResponse(b"tampered", headers={"Content-Length": "8"}))
+    with pytest.raises(ValueError, match="SHA-256 mismatch"):
+        fetch_asset(spec, root)
+    assert not (root / "tiny-model" / "weights.bin").exists()
+    assert not (root / "tiny-model" / "model-manifest.json").exists()
+
+
+def test_http_asset_requires_integrity_before_request(tmp_path, monkeypatch):
+    root = tmp_path / "models"
+    root.mkdir()
+    calls = []
+    monkeypatch.setattr("autodub.model_assets.urllib.request.urlopen",
+                        lambda *_args, **_kwargs: calls.append(1))
+    spec = {"id": "tiny-model", "revision": "http", "kind": "http", "files": [
+        {"path": "weights.bin", "url": "https://models.example/file", "bytes": 4}]}
+    with pytest.raises(ValueError, match="no upstream integrity checksum"):
+        fetch_asset(spec, root)
+    assert calls == []
 
 
 def test_bad_existing_asset_is_not_accepted_as_verified(tmp_path):

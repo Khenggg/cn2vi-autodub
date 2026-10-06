@@ -8,7 +8,7 @@ Baseline core: `9b4960a`. Phần benchmark được chuẩn bị để khóa run
 - Năm dependency locks có hashes: ASR, TTS CUDA, TTS CPU, vision, Bandit/ProPainter. Tách environment model khỏi core web để tránh xung đột Gradio/Pydantic. Torch CUDA 12.8 được kiểm tra riêng ở cloud bootstrap.
 - Adapters thật: Qwen ASR/align, Bandit ERB48, VieNeu, RapidOCR ROI, LaMa tight crop và ProPainter frame sequence có giới hạn. DashScope translation giữ glossary/context, kiểm tra IDs/JSON, retry có giới hạn, không ghi key vào report.
 - Corpus validator, metric CER/alignment/audio QC, config/plan generator, suite chạy process riêng theo thứ tự, dry-run, timeout/failure reporting, environment preflight, cloud bootstrap và runbook.
-- Gói Git bundle có SHA-256 cho chuyển code lên host không cần Git hosting; tạo từ committed branch bằng `scripts/package_cloud.ps1`, không đóng gói weights/cache/env.
+- `scripts/package_cloud.ps1` tạo Git bundle và bộ cài tự giải nén `.run` có code/giao diện/checksums. Chạy một lệnh trên cloud để cài môi trường, tải/verify models rồi preflight; không đóng gói sẵn weights/cache/env. Xem [AUTOMATIC_CLOUD_SETUP](AUTOMATIC_CLOUD_SETUP.md). Tải HTTP tiếp tục phần dở khi server hỗ trợ Range; file hoàn chỉnh đúng hash được dùng lại.
 - Local CPU smoke đã chạy OCR → LaMa và VieNeu ONNX, tạo mask/PNG/WAV thật. Raw reports ở [validation](validation/); phép đo này chỉ dùng dữ liệu tổng hợp.
 
 ## Điểm cần GPU

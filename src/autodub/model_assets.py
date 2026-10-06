@@ -1,15 +1,25 @@
 """Download immutable model assets explicitly; inference never downloads from floating branches."""
 import argparse
 import hashlib
+import http.client
 import json
 import os
 import re
 import shutil
 import subprocess
+import sys
+import time
+import urllib.error
 import urllib.request
 from pathlib import Path
 
 from autodub.storage import atomic_json, safe_path, sha256_file
+
+HTTP_DOWNLOAD_TIMEOUT = 120
+HTTP_DOWNLOAD_ATTEMPTS = 3
+HTTP_RETRY_BACKOFF_SECONDS = (0.1, 0.2)
+HTTP_COPY_CHUNK_BYTES = 1024 * 1024
+UNKNOWN_ASSET_SIZE_ESTIMATE = 256 * 1024**2
 
 
 def manifest_digest(files: list[dict]) -> str:
@@ -64,6 +74,177 @@ def _verify_download(path: Path, specification: dict) -> None:
             raise ValueError("Downloaded asset upstream MD5 mismatch")
     else:
         raise ValueError("Asset has no upstream integrity checksum")
+
+
+def _http_integrity_requirements(specification: dict) -> int | None:
+    if not any(specification.get(key) for key in ("sha256", "git_blob_sha1", "md5")):
+        raise ValueError("Asset has no upstream integrity checksum")
+    expected_bytes = specification.get("bytes")
+    if expected_bytes is not None and (isinstance(expected_bytes, bool)
+                                       or not isinstance(expected_bytes, int) or expected_bytes < 0):
+        raise ValueError("Invalid expected HTTP asset length")
+    return expected_bytes
+
+
+def _content_length(headers) -> int | None:
+    value = headers.get("Content-Length")
+    if value is None:
+        return None
+    try:
+        length = int(value)
+    except (TypeError, ValueError):
+        raise ValueError("Invalid HTTP asset response length") from None
+    if length < 0:
+        raise ValueError("Invalid HTTP asset response length")
+    return length
+
+
+def _content_range(headers) -> tuple[int, int, int]:
+    value = headers.get("Content-Range")
+    match = re.fullmatch(r"bytes (\d+)-(\d+)/(\d+)", value or "", flags=re.IGNORECASE)
+    if not match:
+        raise ValueError("Invalid HTTP asset Content-Range")
+    start, end, total = (int(part) for part in match.groups())
+    if start > end or end >= total:
+        raise ValueError("Invalid HTTP asset Content-Range")
+    return start, end, total
+
+
+def _http_status(response) -> int | None:
+    status = getattr(response, "status", None)
+    if status is None:
+        status = response.getcode()
+    return status
+
+
+def _download_http_asset(url: str, temporary: Path, root: Path, specification: dict) -> None:
+    """Resume an integrity-checked HTTPS transfer without exposing upstream URL errors."""
+    expected_bytes = _http_integrity_requirements(specification)
+    if temporary.is_symlink():
+        raise ValueError("Partial asset path must not be a symlink")
+    if temporary.exists() and not temporary.is_file():
+        raise ValueError("Partial asset path is not a regular file")
+
+    expected_total = expected_bytes
+    offset = temporary.stat().st_size if temporary.exists() else 0
+    if offset:
+        try:
+            _verify_download(temporary, specification)
+        except ValueError:
+            if expected_bytes is not None and offset >= expected_bytes:
+                temporary.unlink()
+                offset = 0
+            else:
+                offset = temporary.stat().st_size
+        else:
+            # A crash after completing the body but before promotion needs no network request.
+            return
+
+    minimum_free = 256 * 1024**2
+    estimated_size = expected_bytes if expected_bytes is not None else UNKNOWN_ASSET_SIZE_ESTIMATE
+    required_remaining = max(0, estimated_size - offset)
+    if shutil.disk_usage(root).free < required_remaining + minimum_free:
+        raise ValueError("Insufficient disk space for model asset")
+
+    for attempt in range(HTTP_DOWNLOAD_ATTEMPTS):
+        request_headers = {"User-Agent": "CN2VI-AutoDub/0.1"}
+        if offset:
+            request_headers["Range"] = f"bytes={offset}-"
+        try:
+            request = urllib.request.Request(url, headers=request_headers)
+        except (TypeError, ValueError):
+            raise ValueError("Invalid HTTP model asset URL") from None
+        try:
+            response = urllib.request.urlopen(request, timeout=HTTP_DOWNLOAD_TIMEOUT)
+        except urllib.error.HTTPError as error:
+            status = error.code
+            error.close()
+            if status == 416 and offset:
+                # A stale or corrupt complete partial may be beyond the upstream object.
+                temporary.unlink(missing_ok=True)
+                offset = 0
+                expected_total = expected_bytes
+                continue
+            if status == 429 or 500 <= status <= 599:
+                if attempt + 1 < HTTP_DOWNLOAD_ATTEMPTS:
+                    time.sleep(HTTP_RETRY_BACKOFF_SECONDS[min(attempt, len(HTTP_RETRY_BACKOFF_SECONDS) - 1)])
+                    continue
+                raise RuntimeError("HTTP model asset download failed after retries") from None
+            raise ValueError("HTTP model asset request was rejected") from None
+        except (urllib.error.URLError, TimeoutError, OSError, http.client.HTTPException):
+            if attempt + 1 < HTTP_DOWNLOAD_ATTEMPTS:
+                time.sleep(HTTP_RETRY_BACKOFF_SECONDS[min(attempt, len(HTTP_RETRY_BACKOFF_SECONDS) - 1)])
+                continue
+            raise RuntimeError("HTTP model asset download failed after retries") from None
+
+        try:
+            with response:
+                status = _http_status(response)
+                headers = response.headers
+                response_length = _content_length(headers)
+                if status == 429 or (status is not None and 500 <= status <= 599):
+                    if attempt + 1 < HTTP_DOWNLOAD_ATTEMPTS:
+                        time.sleep(HTTP_RETRY_BACKOFF_SECONDS[min(attempt, len(HTTP_RETRY_BACKOFF_SECONDS) - 1)])
+                        continue
+                    raise RuntimeError("HTTP model asset download failed after retries") from None
+                if status not in {200, 206}:
+                    raise ValueError("Unexpected HTTP model asset response")
+
+                if status == 206:
+                    start, end, total = _content_range(headers)
+                    if start != offset or (expected_bytes is not None and total != expected_bytes):
+                        raise ValueError("HTTP model asset range does not match the request")
+                    if expected_total is not None and total != expected_total:
+                        raise ValueError("HTTP model asset total length changed during resume")
+                    expected_total = total
+                    range_length = end - start + 1
+                    if response_length is not None and response_length != range_length:
+                        raise ValueError("HTTP model asset range length mismatch")
+                    mode = "ab" if offset else "wb"
+                    announced_length = range_length
+                else:
+                    # A 200 response to Range means the server ignored it; replace the partial.
+                    mode = "wb"
+                    announced_length = response_length
+                    if response_length is not None:
+                        if expected_bytes is not None and response_length != expected_bytes:
+                            raise ValueError("HTTP model asset length mismatch")
+                        if expected_total is not None and response_length != expected_total:
+                            raise ValueError("HTTP model asset total length changed during resume")
+                        expected_total = response_length
+
+                received = 0
+                with temporary.open(mode) as stream:
+                    while True:
+                        chunk = response.read(HTTP_COPY_CHUNK_BYTES)
+                        if not chunk:
+                            break
+                        stream.write(chunk)
+                        received += len(chunk)
+                offset = temporary.stat().st_size
+                if announced_length is not None and received > announced_length:
+                    raise ValueError("HTTP model asset response exceeded its announced length")
+                if announced_length is not None and received < announced_length:
+                    # The transport ended early; preserve the verified prefix for Range retry.
+                    if attempt + 1 < HTTP_DOWNLOAD_ATTEMPTS:
+                        time.sleep(HTTP_RETRY_BACKOFF_SECONDS[min(attempt, len(HTTP_RETRY_BACKOFF_SECONDS) - 1)])
+                    continue
+                if expected_total is not None and offset > expected_total:
+                    raise ValueError("Downloaded asset length mismatch")
+                if expected_total is not None and offset < expected_total:
+                    if attempt + 1 < HTTP_DOWNLOAD_ATTEMPTS:
+                        time.sleep(HTTP_RETRY_BACKOFF_SECONDS[min(attempt, len(HTTP_RETRY_BACKOFF_SECONDS) - 1)])
+                    continue
+                _verify_download(temporary, specification)
+                return
+        except (urllib.error.URLError, TimeoutError, OSError, http.client.HTTPException):
+            if attempt + 1 < HTTP_DOWNLOAD_ATTEMPTS:
+                offset = temporary.stat().st_size if temporary.exists() else 0
+                time.sleep(HTTP_RETRY_BACKOFF_SECONDS[min(attempt, len(HTTP_RETRY_BACKOFF_SECONDS) - 1)])
+                continue
+            raise RuntimeError("HTTP model asset download failed after retries") from None
+
+    raise ValueError("Downloaded asset length or checksum mismatch")
 
 
 def _git_output(checkout: Path, *arguments: str) -> str:
@@ -162,15 +343,11 @@ def fetch_asset(specification: dict, root: Path) -> dict:
                 except ValueError:
                     pass
             if not valid:
-                if not item["url"].startswith("https://"):
+                url = item.get("url")
+                if not isinstance(url, str) or not url.startswith("https://"):
                     raise ValueError("Only HTTPS asset downloads are allowed")
-                if shutil.disk_usage(root).free < (item.get("bytes") or 256 * 1024**2) + 256 * 1024**2:
-                    raise ValueError("Insufficient disk space for model asset")
                 temporary = path.with_suffix(path.suffix + ".part")
-                request = urllib.request.Request(item["url"], headers={"User-Agent": "CN2VI-AutoDub/0.1"})
-                # Public upstream models only; credentials are not embedded in URLs or manifests.
-                with urllib.request.urlopen(request, timeout=120) as response, temporary.open("wb") as stream:
-                    shutil.copyfileobj(response, stream, 1024**2)
+                _download_http_asset(url, temporary, root, item)
                 _verify_download(temporary, item)
                 temporary.replace(path)
             files.append({"path": item["path"], "bytes": path.stat().st_size, "sha256": sha256_file(path)})
@@ -181,7 +358,7 @@ def fetch_asset(specification: dict, root: Path) -> dict:
     return manifest
 
 
-def fetch_lock(lock_path: Path, root: Path, identifiers: list[str] | None = None) -> list[dict]:
+def fetch_lock(lock_path: Path, root: Path, identifiers: list[str] | None = None, *, progress=None) -> list[dict]:
     lock = json.loads(lock_path.read_text(encoding="utf-8"))
     if lock.get("schema_version") != 1:
         raise ValueError("Unsupported models lock schema")
@@ -189,7 +366,14 @@ def fetch_lock(lock_path: Path, root: Path, identifiers: list[str] | None = None
     selected = [model for model in lock["models"] if not identifiers or model["id"] in identifiers]
     if identifiers and {model["id"] for model in selected} != set(identifiers):
         raise ValueError("Unknown model asset ID")
-    return [fetch_asset(model, root) for model in selected]
+    manifests = []
+    for model in selected:
+        if progress:
+            progress(model["id"], "FETCHING")
+        manifests.append(fetch_asset(model, root))
+        if progress:
+            progress(model["id"], "VERIFIED")
+    return manifests
 
 
 def main() -> int:
@@ -201,7 +385,9 @@ def main() -> int:
     args = parser.parse_args()
     try:
         if args.command == "fetch":
-            manifests = fetch_lock(args.lock, args.root, args.only)
+            manifests = fetch_lock(args.lock, args.root, args.only,
+                                   progress=lambda identifier, status: print(
+                                       json.dumps({"asset": identifier, "status": status}), file=sys.stderr, flush=True))
             print(json.dumps({"status": "FETCHED", "assets": [item["id"] for item in manifests]}))
         else:
             lock = json.loads(args.lock.read_text(encoding="utf-8"))

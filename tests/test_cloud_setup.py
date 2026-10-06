@@ -1,0 +1,210 @@
+from __future__ import annotations
+
+import os
+import shlex
+import shutil
+import subprocess
+from pathlib import Path
+
+import pytest
+
+SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "cloud_setup.sh"
+GIT_BASH = Path("C:/Program Files/Git/bin/bash.exe")
+BASH = (str(GIT_BASH) if GIT_BASH.is_file() else None) if os.name == "nt" else shutil.which("bash")
+
+
+def _bash_platform() -> str:
+    if not BASH:
+        return ""
+    result = subprocess.run([BASH, "-lc", "uname -s"], capture_output=True, text=True, check=False)
+    return result.stdout.strip()
+
+
+def _shell_path(path: Path, platform: str) -> str:
+    raw = str(path)
+    if os.name != "nt":
+        return raw
+    if platform.startswith("Linux"):
+        drive, rest = os.path.splitdrive(raw)
+        if not drive:
+            raise ValueError(f"Expected a Windows drive path, got {raw}")
+        return f"/mnt/{drive[0].lower()}/{rest.replace(os.sep, '/').lstrip('/')}"
+    result = subprocess.run([BASH, "-lc", 'cygpath -u "$1"', "cloud-setup-test", raw],
+                            capture_output=True, text=True, check=True)
+    return result.stdout.strip()
+
+
+@pytest.fixture
+def shell_platform() -> str:
+    if not BASH:
+        pytest.skip("bash is not installed")
+    platform = _bash_platform()
+    if os.name == "nt" and not (platform.startswith("Linux") or platform.startswith(("MSYS", "MINGW"))):
+        pytest.skip("bash shell integration needs WSL or Git Bash")
+    return platform
+
+
+def _fake_project(tmp_path: Path, platform: str) -> tuple[Path, Path, Path, Path, Path, Path]:
+    project = tmp_path / "project"
+    data = tmp_path / "data"
+    venv = tmp_path / "venvs"
+    project.joinpath("benchmarks").mkdir(parents=True)
+    project.joinpath("scripts").mkdir()
+    project.joinpath("benchmarks", "models.lock.json").write_text("{}\n", encoding="utf-8")
+    os_release = project / "test-os-release"
+    os_release.write_text('ID=ubuntu\nVERSION_ID="24.04"\n', encoding="utf-8")
+    fixture_script = SCRIPT.read_text(encoding="utf-8").replace(
+        "/etc/os-release", _shell_path(os_release, platform)
+    )
+    project.joinpath("scripts", "cloud_setup.sh").write_text(fixture_script, encoding="utf-8")
+    project.joinpath("scripts", "cloud_bootstrap.sh").write_text(
+        """#!/usr/bin/env bash
+printf 'called\\n' >> "$BOOTSTRAP_MARKER"
+exit 0
+""",
+        encoding="utf-8",
+    )
+    call_log = tmp_path / "calls.log"
+    host_log = tmp_path / "host-checks.log"
+    fake_bin = tmp_path / "fake-bin"
+    fake_bin.mkdir()
+    fake_nvidia = fake_bin / "nvidia-smi"
+    fake_nvidia.write_text(
+        """#!/usr/bin/env bash
+printf 'nvidia-smi\\n' >> "$HOST_CHECK_LOG"
+[[ "${FAKE_GPU_FAIL:-0}" != 1 ]] || exit 9
+printf '16000\\n'
+""",
+        encoding="utf-8",
+    )
+    fake_nvidia.chmod(0o755)
+    fake_df = fake_bin / "df"
+    fake_df.write_text(
+        """#!/usr/bin/env bash
+printf 'df\\n' >> "$HOST_CHECK_LOG"
+printf 'Filesystem 1B-blocks Used Available Use%% Mounted on\\nfake 999999999999 0 999999999999 0%% /\\n'
+""",
+        encoding="utf-8",
+    )
+    fake_df.chmod(0o755)
+    for command in ("sudo", "apt-get", "python3.12", "curl", "wget"):
+        sentinel = fake_bin / command
+        sentinel.write_text(
+            "#!/usr/bin/env bash\nprintf '%s\\n' \"$0 $*\" >> \"$DANGEROUS_COMMAND_LOG\"\nexit 95\n",
+            encoding="utf-8",
+        )
+        sentinel.chmod(0o755)
+    fake_python = """#!/usr/bin/env bash
+printf '%s\\n' "$*" >> "$FAKE_CALL_LOG"
+if [[ "$1 $2" == "-m autodub.preflight" ]]; then
+  profile=''
+  while (($#)); do
+    if [[ "$1" == '--profile' ]]; then profile="$2"; shift 2; else shift; fi
+  done
+  [[ "${FAKE_FAIL_PROFILE:-}" != "$profile" ]] || exit 2
+fi
+exit 0
+"""
+    for environment in ("core", "asr", "tts", "vision", "bandit"):
+        executable = venv / environment / "bin" / "python"
+        executable.parent.mkdir(parents=True)
+        executable.write_text(fake_python, encoding="utf-8")
+        executable.chmod(0o755)
+    return project, data, venv, call_log, host_log, fake_bin
+
+
+def _run_setup(project: Path, data: Path, venv: Path, call_log: Path, host_log: Path, fake_bin: Path,
+               journal: Path, platform: str, *arguments: str, fail_profile: str = "",
+               fail_host: bool = False) -> subprocess.CompletedProcess[str]:
+    shell_script = _shell_path(project / "scripts" / "cloud_setup.sh", platform)
+    bindings = {
+        "PROJECT_ROOT": _shell_path(project, platform),
+        "AUTODUB_DATA_ROOT": _shell_path(data, platform),
+        "AUTODUB_VENV_ROOT": _shell_path(venv, platform),
+        "AUTODUB_SETUP_JOURNAL": _shell_path(journal, platform),
+        "FAKE_CALL_LOG": _shell_path(call_log, platform),
+        "FAKE_FAIL_PROFILE": fail_profile,
+        "BOOTSTRAP_MARKER": _shell_path(project.parent / "bootstrap.log", platform),
+        "HOST_CHECK_LOG": _shell_path(host_log, platform),
+        "FAKE_GPU_FAIL": "1" if fail_host else "0",
+        "DANGEROUS_COMMAND_LOG": _shell_path(project.parent / "dangerous-commands.log", platform),
+    }
+    exports = " ".join(f"{key}={shlex.quote(value)}" for key, value in bindings.items())
+    command = f"export {exports}; export PATH={shlex.quote(_shell_path(fake_bin, platform))}:/usr/bin:/bin; " \
+        f"exec bash {shlex.quote(shell_script)} " + " ".join(shlex.quote(arg) for arg in arguments)
+    return subprocess.run([BASH, "-c", command],
+                          capture_output=True, text=True, check=False)
+
+
+def test_dry_run_only_prints_plan_and_never_calls_bootstrap(tmp_path: Path, shell_platform: str) -> None:
+    project, data, venv, call_log, host_log, fake_bin = _fake_project(tmp_path, shell_platform)
+    journal = data / "results" / "dry-run.log"
+    result = _run_setup(project, data, venv, call_log, host_log, fake_bin, journal, shell_platform, "--dry-run")
+
+    assert result.returncode == 0
+    assert "DRY RUN" in result.stdout
+    assert "qwen-asr" in result.stdout and "propainter-weights" in result.stdout
+    assert "asr tts vision bandit" in result.stdout
+    assert "moss-onnx" not in result.stdout and "vieneu-turbo-onnx" not in result.stdout
+    assert not call_log.exists()
+    assert not host_log.exists()
+    assert not (project.parent / "dangerous-commands.log").exists()
+    assert not journal.exists()
+
+
+def test_success_runs_all_steps_and_rerun_reaches_ready_again(tmp_path: Path, shell_platform: str) -> None:
+    project, data, venv, call_log, host_log, fake_bin = _fake_project(tmp_path, shell_platform)
+    for run_number in (1, 2):
+        journal = data / "results" / f"run-{run_number}.log"
+        result = _run_setup(project, data, venv, call_log, host_log, fake_bin, journal, shell_platform)
+        assert result.returncode == 0, result.stderr
+        contents = journal.read_text(encoding="utf-8")
+        assert "run_status=READY" in contents
+        assert "status=PASS" in contents
+    calls = call_log.read_text(encoding="utf-8").splitlines()
+    assert (project.parent / "bootstrap.log").read_text(encoding="utf-8").splitlines() == ["called", "called"]
+    assert host_log.read_text(encoding="utf-8").splitlines().count("nvidia-smi") == 2
+    assert host_log.read_text(encoding="utf-8").splitlines().count("df") == 2
+    assert not (project.parent / "dangerous-commands.log").exists()
+    assert sum(line == "-m autodub.model_assets fetch" or line.startswith("-m autodub.model_assets fetch ")
+               for line in calls) == 2
+    assert sum(line.startswith("-m autodub.model_assets verify ") for line in calls) == 2
+    for profile in ("asr", "tts", "vision", "bandit"):
+        assert sum(f"--profile {profile}" in line for line in calls) == 2
+    assert "--model-manifest" in next(line for line in calls if "--profile asr" in line)
+
+
+def test_failed_preflight_preserves_exit_code_and_stops_later_profiles(
+    tmp_path: Path, shell_platform: str
+) -> None:
+    project, data, venv, call_log, host_log, fake_bin = _fake_project(tmp_path, shell_platform)
+    journal = data / "results" / "failed.log"
+    result = _run_setup(project, data, venv, call_log, host_log, fake_bin, journal, shell_platform,
+                        fail_profile="vision")
+
+    assert result.returncode == 2
+    assert "BLOCKED step=preflight_vision exit_code=2" in result.stderr
+    contents = journal.read_text(encoding="utf-8")
+    assert "run_status=BLOCKED" in contents
+    assert "failed_step=preflight_vision" in contents
+    assert "run_status=READY" not in contents
+    calls = call_log.read_text(encoding="utf-8").splitlines()
+    assert any("--profile vision" in line for line in calls)
+    assert not any("--profile bandit" in line for line in calls)
+    assert not (project.parent / "dangerous-commands.log").exists()
+
+
+def test_host_gate_runs_before_bootstrap_and_model_downloads(tmp_path: Path, shell_platform: str) -> None:
+    project, data, venv, call_log, host_log, fake_bin = _fake_project(tmp_path, shell_platform)
+    journal = data / "results" / "host-failed.log"
+    result = _run_setup(project, data, venv, call_log, host_log, fake_bin, journal,
+                        shell_platform, fail_host=True)
+
+    assert result.returncode == 69
+    assert "BLOCKED step=host_preflight exit_code=69" in result.stderr
+    assert not (project.parent / "bootstrap.log").exists()
+    assert not call_log.exists()
+    assert not (project.parent / "dangerous-commands.log").exists()
+    contents = journal.read_text(encoding="utf-8")
+    assert "failed_step=host_preflight" in contents
+    assert "run_status=READY" not in contents
