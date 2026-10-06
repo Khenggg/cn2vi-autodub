@@ -45,6 +45,9 @@ def check_transition(old: str, new: str) -> None:
     allowed[State.NEEDS_REVIEW] = {State.RETRYING, State.COMPLETED}
     allowed[State.RETRYING] = {State.QUEUED}
     allowed[State.PAUSED] = {State.QUEUED}
+    # Fast-path shortcut: pipeline can jump from AUDIO_MIX directly to ENCODING,
+    # bypassing the optional QC / OCR / subtitle-render stages.
+    allowed[State.AUDIO_MIX].add(State.ENCODING)
     if old not in {State.COMPLETED, State.SKIPPED, State.UPLOADING}:
         allowed.setdefault(old, set()).update({State.FAILED, State.CHECKPOINTED, State.PAUSED, State.NEEDS_REVIEW})
     if new not in allowed.get(old, set()):
