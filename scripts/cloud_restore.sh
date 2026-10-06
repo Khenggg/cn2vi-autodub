@@ -31,14 +31,16 @@ done
 
 if ((${#MISSING_PKGS[@]} > 0)); then
   printf 'Đang cài đặt các gói còn thiếu: %s\n' "${MISSING_PKGS[*]}"
-  sudo apt-get update -qq
-  sudo apt-get install -y -qq rclone ffmpeg git python3.12 python3.12-venv
+  sudo apt-get update
+  sudo apt-get install -y rclone ffmpeg git python3.12 python3.12-venv
 fi
 
 # 3. Chuẩn bị thư mục /data và /opt
-printf '[2/5] Chuẩn bị thư mục dữ liệu %s và venv %s...\n' "$DATA_ROOT" "$VENV_ROOT"
+RUN_USER="${SUDO_USER:-$USER}"
+RUN_GROUP="$(id -gn "$RUN_USER" 2>/dev/null || echo "$RUN_USER")"
+printf '[2/5] Chuẩn bị thư mục dữ liệu %s và venv %s (User: %s)...\n' "$DATA_ROOT" "$VENV_ROOT" "$RUN_USER"
 sudo mkdir -p "$DATA_ROOT" "$VENV_ROOT"
-sudo chown -R "$USER:$USER" "$DATA_ROOT" "$VENV_ROOT"
+sudo chown -R "$RUN_USER:$RUN_GROUP" "$DATA_ROOT" "$VENV_ROOT"
 
 # 4. Kiểm tra cấu hình rclone
 printf '[3/5] Kiểm tra kết nối Google Drive (rclone)...\n'
@@ -59,13 +61,13 @@ fi
 # 6. Giải nén vào hệ thống
 printf '[5/5] Giải nén toàn bộ 10 Model AI và 5 Môi trường Python...\n'
 sudo tar -xf "$BACKUP_LOCAL" -C /
-sudo chown -R "$USER:$USER" "$DATA_ROOT" "$VENV_ROOT"
+sudo chown -R "$RUN_USER:$RUN_GROUP" "$DATA_ROOT" "$VENV_ROOT"
 
 # 7. Tự động vá lỗi môi trường (Self-Healing - Đảm bảo hoạt động 100% không cần can thiệp)
 printf '\n[Tự động vá lỗi] Kiểm tra môi trường bandit & liên kết mã nguồn...\n'
 if [[ -x "$VENV_ROOT/bandit/bin/pip" ]]; then
   # Đảm bảo setuptools < 70 để giữ pkg_resources tương thích với thư viện Bandit
-  "$VENV_ROOT/bandit/bin/pip" install -q "setuptools<70" || true
+  "$VENV_ROOT/bandit/bin/pip" install "setuptools<70" || true
 fi
 
 # Đảm bảo mã nguồn mới nhất được liên kết vào tất cả các venv
