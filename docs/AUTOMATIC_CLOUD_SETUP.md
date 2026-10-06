@@ -1,56 +1,48 @@
-# Cài đặt cloud tự động
+# Cài cloud từ GitHub
 
-Quy trình này đóng gói mã nguồn đã commit và frontend đã build vào một file `cn2vi-cloud-setup.run`. Trên máy Ubuntu, file tự kiểm tra payload, dựng checkout đúng commit, cài môi trường, tải/kiểm tra model assets và chạy preflight. Nó không tạo hoặc tắt máy cloud, cài driver NVIDIA, chạy benchmark hay gọi API dịch.
+Luồng chính lấy mã nguồn trực tiếp từ repository GitHub riêng `Khenggg/cn2vi-autodub`, rồi chạy `scripts/cloud_setup.sh`. Setup cài môi trường, tải và kiểm tra model assets đã pin, rồi chạy preflight. Nó không tạo hoặc tắt máy cloud, cài NVIDIA driver, chạy benchmark hay gọi API dịch.
 
-## Tạo gói trên Windows
+## 1. Clone repository riêng
 
-Đảm bảo thay đổi đã commit, frontend dependencies cài được bằng `npm ci`, và core Python environment `.venv` đã sẵn sàng. Chạy từ repository:
-
-```powershell
-.\scripts\package_cloud.ps1
-```
-
-Mặc định script build frontend, rồi ghi ba file dưới `.cache`: Git bundle `cn2vi-cloud.bundle`, installer một file `cn2vi-cloud-setup.run`, và SHA-256 sidecar cho mỗi gói. Installer chứa bundle cùng `frontend/dist`; model weights, video và credentials không được đóng gói. `-BundleOnly` chỉ tạo Git bundle cho quy trình clone thủ công cũ.
-
-Hiện chưa có URL hosting công khai. Sau khi chuẩn bị gói, chuyển duy nhất `cn2vi-cloud-setup.run` lên host Ubuntu bằng phương thức file transfer do bạn chọn. Nếu chuyển kèm sidecar, có thể kiểm tra lỗi truyền file:
+Host cần kết nối Internet và Git. Đảm bảo tài khoản trên host có quyền đọc repository private. Nếu GitHub yêu cầu xác thực, dùng `gh auth login`, credential helper đã cấu hình hoặc SSH key được cấp quyền; không đặt PAT trong URL hoặc command line.
 
 ```bash
-sha256sum -c cn2vi-cloud-setup.run.sha256
+git clone https://github.com/Khenggg/cn2vi-autodub.git
+cd cn2vi-autodub
 ```
 
-SHA-256 phát hiện payload hoặc file bị thay đổi so với digest đi kèm; sidecar và digest nhúng trong installer không phải chữ ký xác thực nhà phát hành. Muốn xác thực nguồn phát hành, cần đối chiếu hash toàn file qua một kênh tin cậy riêng.
+## 2. Kiểm tra rồi chạy setup
 
-## Chạy trên host
+Host cần Ubuntu 24.04 x86_64, driver NVIDIA đã cài và hoạt động (`nvidia-smi`), GPU có ít nhất 15,000 MiB VRAM và tối thiểu 100 GB thập phân còn trống trên filesystem dữ liệu. Cấu hình tham chiếu là RTX 5060 Ti 16 GB, RAM 28 GB. Có quyền root hoặc `sudo` để cài gói hệ thống. Setup không cài/nâng cấp driver hoặc yêu cầu reboot.
 
-Host phải là Ubuntu 24.04 x86_64 với driver NVIDIA đã cài và hoạt động. Dùng máy tham chiếu RTX 5060 Ti 16 GB, RAM tối thiểu 28 GB và ít nhất 100 GB đĩa trống trên volume model/cache. Installer cần quyền root hoặc `sudo` để cài Git, certificate, Python 3.12 và virtualenv support; nó không cài, nâng cấp hoặc yêu cầu reboot driver NVIDIA.
-
-Chạy kiểm tra kế hoạch trước:
+Xem kế hoạch trước; `--dry-run` không chạy apt, tải assets, tạo environment hay sửa dữ liệu:
 
 ```bash
-bash cn2vi-cloud-setup.run --dry-run
+bash scripts/cloud_setup.sh --dry-run
 ```
 
-Lệnh này chỉ in commit, đường dẫn và các bước dự kiến; không chạy apt, tải file, tạo checkout hay sửa dữ liệu. Khi sẵn sàng, chạy:
+Khi sẵn sàng, chạy:
 
 ```bash
-bash cn2vi-cloud-setup.run
+bash scripts/cloud_setup.sh
 ```
 
-Installer kiểm tra Ubuntu 24.04 x86_64 và checksum payload trước apt. Nếu host đã có Python 3/Git, nó kiểm tra cả archive, bundle, commit và xung đột checkout trước apt; nếu thiếu, nó cài công cụ tối thiểu rồi kiểm tra trước khi cài model environments. Sau đó frontend được copy vào project root. Mặc định project ở `/data/autodub/project`, dữ liệu/model/cache/reports ở `/data`, còn venv ở `/opt/autodub/venvs`. Có thể đổi các root trước khi chạy:
+Có thể đổi nơi lưu data và virtualenv bằng biến môi trường:
 
 ```bash
 AUTODUB_DATA_ROOT=/data \
 AUTODUB_VENV_ROOT=/opt/autodub/venvs \
-AUTODUB_PROJECT_ROOT=/data/autodub/project \
-bash cn2vi-cloud-setup.run
+bash scripts/cloud_setup.sh
 ```
 
-Setup tự động cài core cùng các profile ASR, TTS, vision và Bandit; tải và kiểm tra model assets đã pin; cuối cùng chạy preflight cloud cho từng profile. Các bước này cần Internet, có thể tải nhiều dữ liệu và dùng đáng kể dung lượng. Hãy kiểm tra billing và dung lượng host trước khi chạy. Một lần setup thành công không tự chạy suite benchmark.
+Setup cài core cùng các profile ASR, TTS, vision và Bandit; tải rồi xác minh assets từ các nguồn đã khóa; sau đó chạy preflight bắt buộc cho bốn profile. Cần Internet và dung lượng đáng kể. Node.js 24.14.1 được cài vào cache dưới `AUTODUB_DATA_ROOT`; không thay thế Node 18 đang có trên hệ thống. Cấu hình frontend hỗ trợ tự động, không cần tự cài Node/npm toàn hệ thống.
 
-Rerun cùng installer chỉ tiếp tục khi project hiện có đúng commit đã pin, Git worktree sạch và frontend build khớp payload. Nếu project khác commit hoặc có sửa đổi cục bộ, installer dừng và giữ nguyên dữ liệu; chọn một `AUTODUB_PROJECT_ROOT` mới nếu muốn cài song song. Dữ liệu dưới `AUTODUB_DATA_ROOT` được giữ lại.
+Mặc định data/models/cache/reports ở `/data`; virtualenv ở `/opt/autodub/venvs`. Checkout Git nằm tại thư mục clone. Setup giữ dữ liệu hiện có, có thể chạy lại, không tải hoặc gửi video/media hay venv/cache từ máy phát triển. Model files được tải trực tiếp trên host. Setup thành công báo `READY`; journal nằm dưới `/data/results/cloud-setup-<run>.log`, preflight reports tại `/data/results/preflight-<profile>.json` (theo data root đã cấu hình).
 
-Theo dõi journal ở `/data/results/cloud-setup-<run>.log` và preflight reports ở `/data/results/preflight-<profile>.json` (hoặc các root đã cấu hình). Khi setup báo `READY`, kiểm tra report từng profile trước khi tạo plan và chạy benchmark theo [cloud runbook](CLOUD_RUNBOOK.md). Preflight là kiểm tra môi trường, không xác nhận chất lượng model.
+## 3. Bước benchmark sau setup
 
-## Việc cần chuẩn bị cho benchmark
+`READY` xác nhận host và môi trường qua preflight, không xác nhận chất lượng model. Tạo plan, chạy dry-run rồi benchmark theo [cloud runbook](CLOUD_RUNBOOK.md). Giai đoạn này chưa cần video hoặc API key. Benchmark đại diện cần video/corpus có quyền sử dụng. Nếu sau đó chọn provider DashScope, cấu hình `DASHSCOPE_API_KEY` an toàn trên host và chọn rõ `QWEN_TRANSLATION_MODEL`; không đưa key vào URL, command line, repository hay report.
 
-Sau khi có host sẵn sàng, cần video/corpus có quyền sử dụng và cấu hình suite để đánh giá phim thực tế. Chưa cần truyền video hoặc API key cho installer. Nếu chọn provider dịch DashScope ở giai đoạn sau, cấu hình `DASHSCOPE_API_KEY` an toàn trên host và chọn rõ `QWEN_TRANSLATION_MODEL`; không nhúng key vào gói, command line hay report.
+## Ngoại tuyến
+
+Nếu host không thể clone GitHub, có thể dùng file `.run` tự chứa làm fallback offline. Gói bằng `scripts/package_cloud.ps1`, chuyển file thủ công rồi chạy `bash cn2vi-cloud-setup.run`; xem [runbook cài đặt tự động](CLOUD_RUNBOOK.md). SHA-256 sidecar chỉ kiểm tra lỗi truyền file, không phải chữ ký xác thực nhà phát hành.

@@ -1,20 +1,10 @@
 # GPU cloud benchmark runbook
 
-The primary host setup is the self-extracting installer. It installs the pinned environments, fetches/verifies the locked assets and runs cloud preflight; it does not create or terminate a VM or start benchmark jobs. Review [automatic cloud setup](AUTOMATIC_CLOUD_SETUP.md) for package creation, transfer and first run. Check provider billing and stop the VM yourself when the run is complete.
+The primary source and setup route is the private GitHub repository `Khenggg/cn2vi-autodub`. Clone it on the cloud host, then run `bash scripts/cloud_setup.sh`; the setup guide has the exact commands and host requirements. Setup installs the pinned environments, fetches/verifies locked assets and runs cloud preflight. It does not create or terminate a VM or start benchmark jobs. Check provider billing and stop the VM yourself when the run is complete.
 
-For the current manual transfer workflow, commit all prepared changes on Windows and run `scripts/package_cloud.ps1`. It builds the frontend and creates `.cache/cn2vi-cloud-setup.run` plus its SHA-256 sidecar; the one `.run` contains the Git bundle and built frontend. Transfer that file to the host and optionally verify transfer integrity:
+The private repository requires an authorized GitHub login, credential helper, or SSH key. Do not put a PAT in the clone URL. The optional offline fallback is the self-extracting `.run` created by `scripts/package_cloud.ps1`; it embeds the Git bundle and built frontend. See [automatic cloud setup](AUTOMATIC_CLOUD_SETUP.md). Its SHA-256 sidecar detects transfer corruption but is not a publisher signature.
 
-```bash
-sha256sum -c cn2vi-cloud-setup.run.sha256
-bash cn2vi-cloud-setup.run --dry-run
-bash cn2vi-cloud-setup.run
-```
-
-There is no public hosting URL yet. Copy the file to the host manually. The embedded digest checks payload integrity but is not a publisher signature. The host must be Ubuntu 24.04 x86_64 with a working NVIDIA driver. Setup installs Git, certificates and Python 3.12, then calls `cloud_setup.sh` to install environments, fetch and verify model assets, and run preflight. It does not install NVIDIA drivers, reboot, create/stop cloud machines, or run benchmarks. Default roots are `/data`, `/opt/autodub/venvs`, and `/data/autodub/project`; see the linked setup guide to override them. Keep at least 28 GB RAM and 100 GB free disk for the RTX 5060 Ti 16 GB reference configuration.
-
-The former separate Git bundle flow remains available for manual diagnostics only. `scripts/package_cloud.ps1 -BundleOnly` creates `.cache/cn2vi-cloud.bundle` and its sidecar; after verifying the transfer, clone it with Git, copy the matching built frontend, and run the documented scripts from that checkout. Do not mix a bundle from one commit with a frontend from another.
-
-The sections below retain the step-by-step manual diagnostics. The installer already fetches and verifies assets and runs each profile preflight; do not repeat these steps when the setup journal reports `READY`.
+The sections below retain the step-by-step manual diagnostics. `cloud_setup.sh` already fetches and verifies assets and runs each profile preflight; do not repeat these steps when the setup journal reports `READY`.
 
 ## Manual diagnostics: fetch pinned model assets
 

@@ -163,6 +163,10 @@ run_step fetch_assets "$CORE_PYTHON" -m autodub.model_assets fetch --lock "$LOCK
 run_step verify_assets "$CORE_PYTHON" -m autodub.model_assets verify --lock "$LOCK_FILE" \
   --root "$AUTODUB_DATA_ROOT/models" --only "${ASSETS[@]}"
 
+if [[ -f "$PROJECT_ROOT/scripts/cloud_frontend.sh" && -f "$PROJECT_ROOT/frontend/package.json" ]]; then
+  run_step frontend_build bash "$PROJECT_ROOT/scripts/cloud_frontend.sh"
+fi
+
 for profile in "${PROFILES[@]}"; do
   report="$AUTODUB_DATA_ROOT/results/preflight-$profile.json"
   args=(--require-cloud --profile "$profile" --models-root "$AUTODUB_DATA_ROOT/models" \
