@@ -41,11 +41,10 @@ def _python_executable(value: str | None, plan_path: Path) -> str:
     candidate = Path(value).expanduser()
     has_path = candidate.is_absolute() or "/" in value or "\\" in value
     if has_path:
-        resolved = candidate if candidate.is_absolute() else plan_path.parent / candidate
-        resolved = resolved.resolve()
-        if not resolved.is_file():
+        target = candidate if candidate.is_absolute() else (plan_path.parent / candidate)
+        if not target.is_file():
             raise PlanError("Configured Python executable was not found")
-        return str(resolved)
+        return str(target)
     found = shutil.which(value)
     if found is None:
         raise PlanError("Configured Python executable was not found")
