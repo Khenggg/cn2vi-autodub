@@ -113,8 +113,10 @@ class Pipeline:
             # ---------------------------------------------------------
             # Stage 3: TRANSLATING (25% -> 45%)
             # ---------------------------------------------------------
+            from autodub.adapters.local_translation import find_deepseek_api_key
+            trans_label = "DeepSeek-V3 API" if find_deepseek_api_key() else "Qwen3.5-4B Offline"
             self.db.transition(
-                ep_id, "TRANSLATING", "Äang dá»‹ch tiáº¿ng Trung sang tiáº¿ng Viá»‡t (Qwen3.5-4B Offline)",
+                ep_id, "TRANSLATING", f"Đang dịch tiếng Trung sang tiếng Việt ({trans_label})",
                 progress=0.35, next_stage="SEPARATING",
             )
             glossary = {

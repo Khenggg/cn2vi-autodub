@@ -16,4 +16,7 @@ test-results/
 output/
 .playwright-cli/
 .pytest_temp*/
+.pytest_tmp*/
 uv.lock
+docs/API*.txt*
+*API*.txt*

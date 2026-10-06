@@ -24,7 +24,7 @@ _INTERPRETER_STAGE = {
 _SECRET_KEY = re.compile(r"(?:secret|token|password|credential|api[_-]?key|authorization)", re.I)
 _SAFE_ENV = (
     "PATH", "SYSTEMROOT", "WINDIR", "TEMP", "TMP", "CUDA_VISIBLE_DEVICES",
-    "CUDA_HOME", "CUDA_PATH", "LD_LIBRARY_PATH",
+    "CUDA_HOME", "CUDA_PATH", "LD_LIBRARY_PATH", "DEEPSEEK_API_KEY",
 )
 
 

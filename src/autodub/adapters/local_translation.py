@@ -2,6 +2,12 @@
 from __future__ import annotations
 
 import json
+import os
+import re
+import socket
+import time
+import urllib.error
+import urllib.request
 from pathlib import Path
 from typing import Any
 
@@ -43,6 +49,32 @@ def _aliases(batch: list[Segment]) -> list[str]:
 
 class LocalTranslationError(RuntimeError):
     """Safe translation failure that does not expose model output or paths."""
+
+
+def find_deepseek_api_key() -> str | None:
+    """Find DeepSeek API key from environment variable or repository docs/API.txt.txt."""
+    key = os.getenv("DEEPSEEK_API_KEY")
+    if key and key.strip():
+        return key.strip()
+    candidates = [
+        Path(__file__).resolve().parents[3] / "docs" / "API.txt.txt",
+        Path(__file__).resolve().parents[3] / "docs" / "API.txt",
+        Path("docs/API.txt.txt"),
+        Path("docs/API.txt"),
+        Path("/data/API.txt"),
+        Path("/home/ezycloudx-admin/cn2vi-autodub/docs/API.txt.txt"),
+        Path("/home/ezycloudx-admin/cn2vi-autodub/docs/API.txt"),
+    ]
+    for p in candidates:
+        if p.is_file():
+            try:
+                content = p.read_text(encoding="utf-8").strip()
+                match = re.search(r"sk-[a-zA-Z0-9]{20,}", content)
+                if match:
+                    return match.group(0).strip()
+            except Exception:
+                pass
+    return None
 
 
 def _validate_glossary(glossary: Any) -> dict[str, str]:
@@ -206,14 +238,65 @@ def _generate(model, tokenizer, torch, device: str, prompt: str) -> str:
     return tokenizer.decode(generated[0, input_ids.shape[-1]:], skip_special_tokens=True)
 
 
+def _translate_with_deepseek(segments: list[Segment], glossary: dict[str, str],
+                             config: dict, api_key: str,
+                             batch_size: int = 10) -> list[Segment]:
+    collected: list[Segment] = []
+    for i in range(0, len(segments), batch_size):
+        batch = segments[i:i + batch_size]
+        payload = json.dumps({
+            "model": "deepseek-chat",
+            "messages": _messages(batch, glossary, config),
+            "response_format": {"type": "json_object"},
+            "temperature": 0.2,
+            "max_tokens": 4096,
+            "stream": False,
+        }, ensure_ascii=False).encode("utf-8")
+
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
+
+        last_error = None
+        for attempt in range(MAX_JSON_ATTEMPTS):
+            req = urllib.request.Request(
+                "https://api.deepseek.com/chat/completions",
+                data=payload,
+                headers=headers,
+                method="POST",
+            )
+            try:
+                with urllib.request.urlopen(req, timeout=45.0) as resp:
+                    resp_data = json.loads(resp.read().decode("utf-8"))
+                    content = resp_data["choices"][0]["message"]["content"]
+                translated = _parse_completion(batch, content, glossary)
+                collected.extend(translated)
+                last_error = None
+                break
+            except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError, socket.timeout, OSError) as err:
+                last_error = LocalTranslationError(f"DeepSeek API network error: {err}")
+                if attempt + 1 == MAX_JSON_ATTEMPTS:
+                    raise last_error from err
+                time.sleep(1.0 * (2 ** attempt))
+            except LocalTranslationError as err:
+                last_error = err
+                if attempt + 1 == MAX_JSON_ATTEMPTS:
+                    raise
+                time.sleep(1.0)
+        if last_error is not None:
+            raise last_error
+    return collected
+
+
 def run(source: Path, config: dict) -> dict:
-    """Translate configured Segment contracts with the local pinned model only."""
+    """Translate configured Segment contracts with DeepSeek API or local pinned model."""
     del source  # Source media is intentionally not uploaded or passed to the text model.
     if not isinstance(config, dict):
         raise ValueError("config must be an object")
     model_id = config.get("translation_model_id", MODEL_ID)
-    if model_id != MODEL_ID:
-        raise ValueError("translation_model_id must use the pinned local model")
+    if model_id != MODEL_ID and model_id != "deepseek-chat":
+        raise ValueError("translation_model_id must use the pinned local model or deepseek-chat")
     segments = _validate_segments(config.get("segments"))
     glossary = _validate_glossary(config.get("glossary", {}))
     if not segments:
@@ -225,6 +308,40 @@ def run(source: Path, config: dict) -> dict:
                 "quality_evidence": {"status": "REVIEW_REQUIRED", "missing": ["human_translation_review"]},
                 "processed_media_ms": 0, "metrics": {"model_load_ms": 0, "inference_ms": 0,
                     "gpu_allocator_peak_bytes": None}, "artifacts": [str(target)]}
+
+    api_key = config.get("deepseek_api_key") or find_deepseek_api_key()
+    if api_key:
+        started = milliseconds()
+        collected = _translate_with_deepseek(segments, glossary, config, api_key)
+        inference_ms = milliseconds() - started
+        folder = output_folder(config)
+        target = folder / "translation.json"
+        atomic_json(target, {
+            "schema_version": 1,
+            "model_id": "deepseek-chat",
+            "provider": "deepseek-api",
+            "segments": [segment.model_dump() for segment in collected],
+            "human_review_required": True,
+        })
+        manifest = {
+            "id": "deepseek-chat",
+            "model_revision": "deepseek-v3",
+            "weights_sha256": "api",
+        }
+        metrics = {
+            "model_load_ms": 0,
+            "inference_ms": inference_ms,
+            "batch_count": (len(segments) + 9) // 10,
+            "gpu_allocator_peak_bytes": None,
+        }
+        return {
+            **identity([manifest]),
+            "quality_metrics": {"translated_segments": len(collected)},
+            "quality_evidence": {"status": "REVIEW_REQUIRED", "missing": ["human_translation_review"]},
+            "processed_media_ms": sum(segment.end_ms - segment.start_ms for segment in segments),
+            "metrics": metrics,
+            "artifacts": [str(target)],
+        }
 
     try:
         configure_offline(config)
