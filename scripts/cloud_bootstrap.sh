@@ -72,9 +72,12 @@ create_or_update_env() {
   if [[ ! -x "${env_path}/bin/python" ]]; then
     python3.12 -m venv "${env_path}"
   fi
-  local python="${env_path}/bin/python"
+  local st_ver="${SETUPTOOLS_VERSION}"
+  if [[ "${name}" == bandit ]]; then
+    st_ver="69.5.1"
+  fi
   "${python}" -m pip install --upgrade \
-    "pip==${PIP_VERSION}" "setuptools==${SETUPTOOLS_VERSION}" "wheel==${WHEEL_VERSION}"
+    "pip==${PIP_VERSION}" "setuptools==${st_ver}" "wheel==${WHEEL_VERSION}"
   "${python}" -m pip --version
   if [[ "${name}" == core ]]; then
     "${python}" -m pip install --requirement "${PROJECT_ROOT}/requirements.lock"

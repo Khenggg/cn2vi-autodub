@@ -61,7 +61,24 @@ printf '[5/5] Giải nén toàn bộ 10 Model AI và 5 Môi trường Python...\
 sudo tar -xf "$BACKUP_LOCAL" -C /
 sudo chown -R "$USER:$USER" "$DATA_ROOT" "$VENV_ROOT"
 
-# 7. Kiểm tra frontend dist nếu cần
+# 7. Tự động vá lỗi môi trường (Self-Healing - Đảm bảo hoạt động 100% không cần can thiệp)
+printf '\n[Tự động vá lỗi] Kiểm tra môi trường bandit & liên kết mã nguồn...\n'
+if [[ -x "$VENV_ROOT/bandit/bin/pip" ]]; then
+  # Đảm bảo setuptools < 70 để giữ pkg_resources tương thích với thư viện Bandit
+  "$VENV_ROOT/bandit/bin/pip" install -q "setuptools<70" || true
+fi
+
+# Đảm bảo mã nguồn mới nhất được liên kết vào tất cả các venv
+for venv in "$VENV_ROOT"/*; do
+  if [[ -d "$venv" && -x "$venv/bin/python" ]]; then
+    site_packages="$("$venv/bin/python" -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])' 2>/dev/null || true)"
+    if [[ -n "$site_packages" && -d "$site_packages" ]]; then
+      printf '%s\n' "$PROJECT_ROOT/src" > "$site_packages/autodub-project-src.pth" || true
+    fi
+  fi
+done
+
+# 8. Kiểm tra frontend dist nếu cần
 if [[ ! -f "$PROJECT_ROOT/frontend/dist/index.html" && -f "$PROJECT_ROOT/scripts/cloud_frontend.sh" ]]; then
   printf 'Frontend chưa được build, đang tự động build giao diện web...\n'
   bash "$PROJECT_ROOT/scripts/cloud_frontend.sh"
@@ -70,7 +87,9 @@ fi
 printf '\n============================================================\n'
 printf '   KHÔI PHỤC HOÀN TẤT 100%! HỆ THỐNG ĐÃ SẴN SÀNG!          \n'
 printf '============================================================\n\n'
-printf 'Khởi chạy Web ngay bằng lệnh:\n\n'
+printf 'Khởi chạy Web chạy ngầm daemon (khuyên dùng):\n'
+printf '  bash "%s/scripts/start_web.sh" start\n\n' "$PROJECT_ROOT"
+printf 'Hoặc khởi chạy trực tiếp:\n'
 printf '  cd "%s"\n' "$PROJECT_ROOT"
 printf '  DATA_DIR=%s \\\n' "$DATA_ROOT"
 printf '  %s/core/bin/python -m uvicorn \\\n' "$VENV_ROOT"
