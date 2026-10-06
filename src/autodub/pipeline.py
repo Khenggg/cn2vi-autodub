@@ -210,9 +210,16 @@ class Pipeline:
                 progress=0.82, next_stage="ENCODING",
             )
             preview_wav = work_dir / "preview.wav"
+            # BandIt manifest lists stems; the mixer needs the speech stem as "dialogue".
+            sep_meta = json.loads(sep_path.read_text(encoding="utf-8"))
+            for win in sep_meta["windows"]:
+                if "dialogue" not in win:
+                    win["dialogue"] = next(p for p in win["stems"] if p.endswith("speech.wav"))
+            mix_sep_path = sep_path.with_name("separation_mix.json")
+            mix_sep_path.write_text(json.dumps(sep_meta), encoding="utf-8")
             mix_preview(
                 source, preview_wav, [s.model_dump() for s in dub_segments],
-                sep_path, {k: Path(v) for k, v in fitted_clips.items()},
+                mix_sep_path, {k: Path(v) for k, v in fitted_clips.items()},
                 ffmpeg_bin=self.settings.ffmpeg_bin,
             )
             self._register_artifact(ep_id, "preview_audio", preview_wav)
