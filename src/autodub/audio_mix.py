@@ -22,6 +22,7 @@ _CHANNELS = 2
 _FRAME_BYTES = 4
 _BLOCK_FRAMES = _RATE
 _RAMP_FRAMES = 240  # 5 ms, kept strictly inside each approved word span.
+_CONTAINER_DRIFT_MS = 500  # container metadata vs decoded PCM length tolerance.
 
 
 def _run(command: list[str], timeout: int = 300) -> None:
@@ -229,8 +230,13 @@ def mix_preview(source: Path, output: Path, segments: list,
                 raise RuntimeError("source decode did not produce stereo PCM16 48 kHz")
             source_frames = src.getnframes()
             source_ms = round(source_frames * 1000 / _RATE)
-        if any(seg["end_ms"] > source_ms for seg in normalized):
-            raise ValueError("segment timing exceeds source duration")
+        # Container metadata duration can exceed the decoded PCM length by a few
+        # packet-framing milliseconds; tolerate and clamp that drift only.
+        for seg in normalized:
+            if seg["end_ms"] > source_ms:
+                if seg["end_ms"] - source_ms > _CONTAINER_DRIFT_MS:
+                    raise ValueError("segment timing exceeds source duration")
+                seg["end_ms"] = source_ms
 
         # Prepare one decoded PCM reader per separation window and per clip.
         readers: dict[str, wave.Wave_read] = {}
