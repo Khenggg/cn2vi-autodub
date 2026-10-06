@@ -23,6 +23,9 @@ start_server() {
         fi
     fi
 
+    export ADMIN_TOKEN="${ADMIN_TOKEN:-p6DGUlHVj9PrTQ3WWJOxIIY5WhMVItTm6bW9h2_WfA0}"
+    echo "${ADMIN_TOKEN}" > "${DATA_DIR}/run/admin_token.txt"
+
     echo "[INFO] Starting CN2VI AutoDub Web UI..."
     cd "${REPO_DIR}"
     nohup "${PYTHON_BIN}" -m uvicorn autodub.main:create_app --factory \
@@ -35,6 +38,7 @@ start_server() {
 
     if kill -0 "${PID}" 2>/dev/null; then
         echo "[SUCCESS] Web UI started successfully (PID: ${PID})!"
+        echo "[KEY] Admin Token: ${ADMIN_TOKEN}"
         echo "[INFO] Logs: ${LOG_FILE}"
         echo "[INFO] Forward port from local Windows PC:"
         echo "       ssh -p 58431 -L 8080:127.0.0.1:8080 ezycloudx-admin@14.169.113.144"
@@ -73,6 +77,9 @@ status_server() {
         if kill -0 "${PID}" 2>/dev/null; then
             echo "[STATUS] Web UI is RUNNING (PID: ${PID})."
             echo "[STATUS] Listening on: 127.0.0.1:8080"
+            if [ -f "${DATA_DIR}/run/admin_token.txt" ]; then
+                echo "[KEY] Admin Token: $(cat "${DATA_DIR}/run/admin_token.txt")"
+            fi
             return 0
         fi
     fi
