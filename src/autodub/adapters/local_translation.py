@@ -114,7 +114,8 @@ def _parse_completion(segments: list[Segment], content: str,
             if not isinstance(item.get(field), str):
                 raise LocalTranslationError("Local translation returned invalid field types; batch rejected")
         if item["punctuation"] not in _PUNCTUATION:
-            raise LocalTranslationError("Local translation returned unsupported punctuation; batch rejected")
+            # Optional terminal mark only: clause marks (",", ";", ":") and unknowns mean "none".
+            item = {**item, "punctuation": "…" if item["punctuation"].strip() == "..." else ""}
         subtitle = item["subtitle_vi"].strip()
         dub = item["dub_vi"].strip()
         if not subtitle or not dub or not item["emotion"].strip():
