@@ -23,6 +23,8 @@ _FRAME_BYTES = 4
 _BLOCK_FRAMES = _RATE
 _RAMP_FRAMES = 240  # 5 ms, kept strictly inside each approved word span.
 _CONTAINER_DRIFT_MS = 500  # container metadata vs decoded PCM length tolerance.
+_ELASTIC_MIN_SPEED = 0.90  # slowest playback when a clip is shorter than its slot.
+_ELASTIC_MAX_SPEED = 1.45  # fastest playback before a clip is cut and flagged.
 
 
 def _run(command: list[str], timeout: int = 300) -> None:
@@ -58,11 +60,16 @@ def _tempo_chain(factor: float) -> str:
 
 
 def fit_voice(wav: Path, output: Path, target_ms: int,
-              ffmpeg_bin: str = "ffmpeg") -> dict[str, Any]:
+              ffmpeg_bin: str = "ffmpeg", *, elastic: bool = False) -> dict[str, Any]:
     """Fit a generated voice clip to its segment without changing pitch.
 
     Duration drift up to 20% is fitted with FFmpeg atempo.  Larger drift is
     returned as REWRITE for human review, without creating a misleading clip.
+
+    With ``elastic=True`` (automatic pipeline) the clip is always fitted to the
+    slot: speed is clamped to ``_ELASTIC_MIN_SPEED``..``_ELASTIC_MAX_SPEED``,
+    short clips are padded with silence, and clips still too long are cut with a
+    short fade-out and flagged ``review_required``.
     """
     wav, output = Path(wav), Path(output)
     if not isinstance(target_ms, int) or isinstance(target_ms, bool) or target_ms <= 0:
@@ -71,13 +78,18 @@ def fit_voice(wav: Path, output: Path, target_ms: int,
     if input_ms <= 0:
         raise ValueError("voice clip must contain audio")
     drift = abs(input_ms - target_ms) / target_ms
-    if drift > 0.20:
+    if drift > 0.20 and not elastic:
         return {"wav": wav, "actual_ms": input_ms, "action": "REWRITE",
                 "review_required": True, "target_ms": target_ms,
                 "duration_drift_ratio": drift}
 
     action = "STRETCH" if drift <= 0.08 else "SPEED"
     factor = input_ms / target_ms
+    truncated = False
+    if elastic:
+        truncated = factor > _ELASTIC_MAX_SPEED
+        factor = min(max(factor, _ELASTIC_MIN_SPEED), _ELASTIC_MAX_SPEED)
+        action = "TRUNCATE" if truncated else action
     output.parent.mkdir(parents=True, exist_ok=True)
     # Render to a sibling temporary file so a failed fit never leaves a partial
     # result at the requested output path.
@@ -93,20 +105,29 @@ def fit_voice(wav: Path, output: Path, target_ms: int,
         actual_frames = len(fitted_pcm) // _FRAME_BYTES
         # atempo rounding may differ by a few samples.  Permit only 20 ms of
         # correction; larger errors signal a bad fit and must be reviewed.
-        if abs(actual_frames - expected_frames) > round(_RATE * 0.020):
+        if not elastic and abs(actual_frames - expected_frames) > round(_RATE * 0.020):
             raise RuntimeError("FFmpeg fit missed the target by more than 20 ms")
         if actual_frames < expected_frames:
             fitted_pcm += b"\0" * ((expected_frames - actual_frames) * _FRAME_BYTES)
         elif actual_frames > expected_frames:
             fitted_pcm = fitted_pcm[:expected_frames * _FRAME_BYTES]
+            if elastic:
+                samples = _pcm16_frames(fitted_pcm)
+                fade = min(expected_frames, round(_RATE * 0.015))
+                for step in range(fade):
+                    gain = (step + 1) / fade
+                    base = (expected_frames - 1 - step) * _CHANNELS
+                    for channel in range(_CHANNELS):
+                        samples[base + channel] = int(samples[base + channel] * gain)
+                fitted_pcm = _bytes(samples)
         with wave.open(str(output), "wb") as rendered:
             rendered.setnchannels(_CHANNELS)
             rendered.setsampwidth(2)
             rendered.setframerate(_RATE)
             rendered.writeframes(fitted_pcm)
     return {"wav": output, "actual_ms": round(expected_frames * 1000 / _RATE),
-            "action": action, "review_required": False, "target_ms": target_ms,
-            "duration_drift_ratio": drift}
+            "action": action, "review_required": truncated, "target_ms": target_ms,
+            "duration_drift_ratio": drift, "speed_factor": factor}
 
 
 def _as_dict(segment: Any) -> dict[str, Any]:

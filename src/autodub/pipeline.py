@@ -10,7 +10,7 @@ from pathlib import Path
 from autodub.audio_mix import fit_voice, mix_preview
 from autodub.config import Settings
 from autodub.contracts import Segment
-from autodub.domain import merge_windows
+from autodub.domain import plan_separation_windows
 from autodub.model_runner import ModelRunner
 from autodub.storage import Database, now_ms, safe_path, sha256_file
 
@@ -36,7 +36,7 @@ class Pipeline:
                 "tts": str(v / "tts" / "bin" / "python") if (v / "tts" / "bin" / "python").exists() else None,
                 "vision": str(v / "vision" / "bin" / "python") if (v / "vision" / "bin" / "python").exists() else None,
             },
-            "voice_id": "Trúc Ly",
+            "voice_id": "TrÃºc Ly",
             "device": "cuda:0",
             "dtype": "bfloat16",
             "ffmpeg_bin": self.settings.ffmpeg_bin,
@@ -61,7 +61,7 @@ class Pipeline:
                 self.db.execute(
                     "INSERT INTO segment VALUES(?,?,?,?,?,?,?,?,?,?,?)",
                     (
-                        s.id, episode_id, s.start_ms, s.end_ms, s.zh_text,
+                        f"{episode_id}:{s.id}", episode_id, s.start_ms, s.end_ms, s.zh_text,
                         s.subtitle_vi, s.dub_vi, 1.0, s.action, "APPROVED" if s.action == "DUB" else "PENDING",
                         json.dumps(s.model_dump(), ensure_ascii=False),
                     ),
@@ -80,7 +80,7 @@ class Pipeline:
             # Stage 1: ASR (5% -> 15%)
             # ---------------------------------------------------------
             self.db.transition(
-                ep_id, "ASR", "Đang nhận diện giọng nói tiếng Trung (Qwen3-ASR)",
+                ep_id, "ASR", "Äang nháº­n diá»‡n giá»ng nÃ³i tiáº¿ng Trung (Qwen3-ASR)",
                 progress=0.10, next_stage="ALIGNING",
             )
             asr_res = runner.run("ASR", source, {"output_dir": str(work_dir / "asr")})
@@ -93,7 +93,7 @@ class Pipeline:
             # Stage 2: ALIGNING (15% -> 25%)
             # ---------------------------------------------------------
             self.db.transition(
-                ep_id, "ALIGNING", "Đang căn chỉnh thời gian từng từ (Qwen3-ForcedAligner)",
+                ep_id, "ALIGNING", "Äang cÄƒn chá»‰nh thá»i gian tá»«ng tá»« (Qwen3-ForcedAligner)",
                 progress=0.20, next_stage="TRANSLATING",
             )
             align_res = runner.run("ALIGNING", source, {
@@ -114,17 +114,22 @@ class Pipeline:
             # Stage 3: TRANSLATING (25% -> 45%)
             # ---------------------------------------------------------
             self.db.transition(
-                ep_id, "TRANSLATING", "Đang dịch tiếng Trung sang tiếng Việt (Qwen3.5-4B Offline)",
+                ep_id, "TRANSLATING", "Äang dá»‹ch tiáº¿ng Trung sang tiáº¿ng Viá»‡t (Qwen3.5-4B Offline)",
                 progress=0.35, next_stage="SEPARATING",
             )
             glossary = {
                 row["zh"]: row["vi"]
                 for row in self.db.rows("SELECT zh,vi FROM glossary_entry WHERE series_id=?", (episode["series_id"],))
             }
+            context = {
+                s.id: " / ".join(n.zh_text for n in (segments[i - 1:i] + segments[i + 1:i + 2]))
+                for i, s in enumerate(segments)
+            }
             trans_res = runner.run("TRANSLATING", source, {
                 "output_dir": str(work_dir / "translation"),
                 "segments": [s.model_dump() for s in segments],
                 "glossary": glossary,
+                "nearby_context": context,
             })
             trans_path = Path(trans_res["artifacts"][0])
             self._register_artifact(ep_id, "translation", trans_path)
@@ -136,35 +141,14 @@ class Pipeline:
             # Stage 4: SEPARATING (45% -> 65%)
             # ---------------------------------------------------------
             self.db.transition(
-                ep_id, "SEPARATING", "Đang tách 3 track âm thanh: Thoại, BGM, SFX (BandIt ERB48)",
+                ep_id, "SEPARATING", "Äang tÃ¡ch 3 track Ã¢m thanh: Thoáº¡i, BGM, SFX (BandIt ERB48)",
                 progress=0.55, next_stage="TTS",
             )
             dub_segments = [s for s in segments if s.action == "DUB" and s.dub_vi.strip()]
             if not dub_segments:
                 dub_segments = segments  # fallback if all text was blank
 
-            spans = []
-            for s in dub_segments:
-                if s.words:
-                    spans.extend((w.s, w.e) for w in s.words)
-                else:
-                    spans.append((s.start_ms, s.end_ms))
-
-            if spans:
-                raw_windows = merge_windows(spans, duration_ms)
-            else:
-                raw_windows = [(0, min(duration_ms, 30000))]
-
-            # Pad all windows to at least 30s to satisfy BandIt fader requirement
-            windows = []
-            for w_start, w_end in raw_windows:
-                if w_end - w_start < 30000:
-                    pad = 30000 - (w_end - w_start)
-                    w_start = max(0, w_start - pad // 2)
-                    w_end = min(duration_ms, w_start + 30000)
-                    if w_end - w_start < 30000 and w_start > 0:
-                        w_start = max(0, w_end - 30000)
-                windows.append({"start_ms": w_start, "end_ms": w_end})
+            windows = plan_separation_windows([(s.start_ms, s.end_ms) for s in dub_segments], duration_ms)
 
             sep_res = runner.run("SEPARATING", source, {
                 "output_dir": str(work_dir / "separating"),
@@ -177,7 +161,7 @@ class Pipeline:
             # Stage 5: TTS (65% -> 75%)
             # ---------------------------------------------------------
             self.db.transition(
-                ep_id, "TTS", "Đang sinh giọng lồng tiếng tiếng Việt (VieNeu-TTS-v3)",
+                ep_id, "TTS", "Äang sinh giá»ng lá»“ng tiáº¿ng tiáº¿ng Viá»‡t (VieNeu-TTS-v3)",
                 progress=0.70, next_stage="TIMING",
             )
             tts_res = runner.run("TTS", source, {
@@ -191,10 +175,11 @@ class Pipeline:
             # Stage 6: TIMING & AUDIO_MIX (75% -> 85%)
             # ---------------------------------------------------------
             self.db.transition(
-                ep_id, "TIMING", "Đang khớp thời lượng khẩu hình (Pitch-Preserved Fitting)",
+                ep_id, "TIMING", "Äang khá»›p thá»i lÆ°á»£ng kháº©u hÃ¬nh (Pitch-Preserved Fitting)",
                 progress=0.78, next_stage="AUDIO_MIX",
             )
             fitted_clips: dict[str, str] = {}
+            fit_report: dict[str, dict] = {}
             timing_dir = work_dir / "timing"
             timing_dir.mkdir(parents=True, exist_ok=True)
             for seg in dub_segments:
@@ -202,11 +187,24 @@ class Pipeline:
                     clip_file = Path(clips[seg.id])
                     target_ms = seg.end_ms - seg.start_ms
                     fitted_file = timing_dir / f"{seg.id.replace(':', '_')}_fitted.wav"
-                    fitted_info = fit_voice(clip_file, fitted_file, target_ms, self.settings.ffmpeg_bin)
+                    fitted_info = fit_voice(clip_file, fitted_file, target_ms, self.settings.ffmpeg_bin,
+                                            elastic=True)
                     fitted_clips[seg.id] = str(fitted_info["wav"])
+                    fit_report[seg.id] = {key: fitted_info[key] for key in
+                                          ("action", "review_required", "target_ms", "speed_factor")}
+            (timing_dir / "fit_report.json").write_text(
+                json.dumps(fit_report, ensure_ascii=False, indent=1), encoding="utf-8")
+            flagged = [sid for sid, info in fit_report.items() if info["review_required"]]
+            if flagged:
+                logger.warning("%d/%d utterances were cut to fit their slot: %s",
+                               len(flagged), len(fit_report), flagged[:10])
+            # Only segments that actually have a fitted clip can be mixed.
+            mix_segments = [s for s in dub_segments if s.id in fitted_clips]
+            if not mix_segments:
+                raise RuntimeError("No dubbed clips were produced")
 
             self.db.transition(
-                ep_id, "AUDIO_MIX", "Đang hòa trộn giọng lồng tiếng với BGM và SFX gốc",
+                ep_id, "AUDIO_MIX", "Äang hÃ²a trá»™n giá»ng lá»“ng tiáº¿ng vá»›i BGM vÃ  SFX gá»‘c",
                 progress=0.82, next_stage="ENCODING",
             )
             preview_wav = work_dir / "preview.wav"
@@ -217,8 +215,12 @@ class Pipeline:
                     win["dialogue"] = next(p for p in win["stems"] if p.endswith("speech.wav"))
             mix_sep_path = sep_path.with_name("separation_mix.json")
             mix_sep_path.write_text(json.dumps(sep_meta), encoding="utf-8")
+            # Replace the whole utterance span: the clip is fitted to the full slot, so
+            # word-level gaps must not cut the voice.
             mix_preview(
-                source, preview_wav, [s.model_dump() for s in dub_segments],
+                source, preview_wav,
+                [{**s.model_dump(), "words": [{"t": s.zh_text, "s": s.start_ms, "e": s.end_ms}]}
+                 for s in mix_segments],
                 mix_sep_path, {k: Path(v) for k, v in fitted_clips.items()},
                 ffmpeg_bin=self.settings.ffmpeg_bin,
             )
@@ -228,7 +230,7 @@ class Pipeline:
             # Stage 7: FINAL MUX & ENCODING (85% -> 100%)
             # ---------------------------------------------------------
             self.db.transition(
-                ep_id, "ENCODING", "Đang xuất video hoàn chỉnh (FFmpeg NVENC Mux)",
+                ep_id, "ENCODING", "Äang xuáº¥t video hoÃ n chá»‰nh (FFmpeg NVENC Mux)",
                 progress=0.90, next_stage="COMPLETED",
             )
             output_dir = self.settings.data_dir / "outputs" / ep_id
@@ -251,7 +253,7 @@ class Pipeline:
             # Complete!
             with self.db.lock:
                 self.db.transition(
-                    ep_id, "COMPLETED", "Hoàn tất lồng tiếng video!",
+                    ep_id, "COMPLETED", "HoÃ n táº¥t lá»“ng tiáº¿ng video!",
                     progress=1.0, next_stage=None, queue_requested=0,
                 )
                 self.db.event(ep_id, "COMPLETED", "Full AutoDub pipeline completed successfully")
@@ -265,5 +267,5 @@ class Pipeline:
                     (uuid.uuid4().hex, ep_id, None, "PIPELINE_ERROR", "error",
                      json.dumps({"message": str(error)}), 0),
                 )
-                self.db.transition(ep_id, "FAILED", f"Lỗi pipeline: {error}", queue_requested=0)
+                self.db.transition(ep_id, "FAILED", f"Lá»—i pipeline: {error}", queue_requested=0)
             return False

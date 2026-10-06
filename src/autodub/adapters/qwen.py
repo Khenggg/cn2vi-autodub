@@ -19,6 +19,7 @@ from autodub.benchmedia import chunk_windows, extract_audio
 from autodub.contracts import Segment
 from autodub.quality import cer, word_boundary_error
 from autodub.storage import atomic_json, sha256_file
+from autodub.utterances import build_utterances
 
 
 def bounds(source: Path, config: dict) -> tuple[int, int]:
@@ -146,8 +147,7 @@ def run_alignment(source: Path, config: dict) -> dict:
     segments, inference_ms, processed_ms = [], 0, 0
     for index, segment in enumerate(validated):
         if not segment.zh_text.strip():
-            segments.append(segment)
-            continue
+            continue  # no speech in this chunk; nothing to translate or dub
         wav = extract_audio(source, folder / f"align_{index:04d}.wav", segment.start_ms, segment.end_ms,
                             ffmpeg_bin=config.get("ffmpeg_bin", "ffmpeg"))
         synchronize(torch, device)
@@ -158,15 +158,26 @@ def run_alignment(source: Path, config: dict) -> dict:
         if len(result) != 1:
             raise ValueError("Alignment output count mismatch")
         words = aligned_words(result[0], segment.start_ms, segment.end_ms - segment.start_ms)
-        # Timing is evidence, not proof that screams/overlap are lexical speech.
-        segment = Segment.model_validate({**segment.model_dump(), "words": words,
-                                          "action": "NEEDS_REVIEW", "needs_review": True})
-        segments.append(segment)
-        processed_ms += segment.end_ms - segment.start_ms
+        # Adjacent chunks overlap; each chunk owns words up to the middle of the shared span.
+        lo, hi = segment.start_ms, segment.end_ms
+        if index > 0 and validated[index - 1].end_ms > segment.start_ms:
+            lo = (segment.start_ms + validated[index - 1].end_ms) // 2
+        if index + 1 < len(validated) and validated[index + 1].start_ms < segment.end_ms:
+            hi = (validated[index + 1].start_ms + segment.end_ms) // 2
+        # One segment per spoken line: translation, TTS and timing all work per utterance.
+        for utterance in build_utterances(segment.zh_text, words, (lo, hi)):
+            # Timing is evidence, not proof that screams/overlap are lexical speech.
+            segments.append(Segment.model_validate({
+                "id": f"seg_{utterance['start_ms']:012d}", "start_ms": utterance["start_ms"],
+                "end_ms": utterance["end_ms"], "zh_text": utterance["text"],
+                "words": utterance["words"], "confidence": segment.confidence,
+                "action": "NEEDS_REVIEW", "needs_review": True}))
+            processed_ms += utterance["end_ms"] - utterance["start_ms"]
     target = folder / "alignment.json"
     atomic_json(target, {"schema_version": 1, "source_sha256": sha256_file(source),
                          "segments": [segment.model_dump() for segment in segments],
-                         "overlap_not_reconciled": True, "lexical_mask_approved": False})
+                         "segmentation": "utterance", "overlap_not_reconciled": False,
+                         "lexical_mask_approved": False})
     reference_words = config.get("reference_words", [])
     quality = word_boundary_error(reference_words, [word.model_dump() for segment in segments for word in segment.words])
     return {**identity([manifest]), "quality_metrics": quality,
