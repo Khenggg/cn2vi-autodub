@@ -94,13 +94,11 @@ def prepare_configs(video_path: Path, meta: dict) -> Path:
     (cfg_dir / "tts.json").write_text(json.dumps(tts_cfg, indent=2), encoding="utf-8")
 
     # 4. OCR config
-    width = meta.get("width") or 1280
-    height = meta.get("height") or 720
     ocr_cfg = {
         "models_root": "/data/models",
         "cache_root": "/data/cache",
         "output_dir": str(RESULTS_DIR / "ocr_artifacts"),
-        "roi": {"x": 0, "y": int(height * 0.75), "width": width, "height": int(height * 0.25)},
+        "roi": {"x": 0.0, "y": 0.75, "w": 1.0, "h": 0.25, "scope": "episode"},
         "start_ms": 0,
         "end_ms": min(int(meta["duration_s"] * 1000), 5000),
         "sample_fps": 2,
