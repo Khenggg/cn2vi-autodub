@@ -36,7 +36,7 @@ def _run_tts(source: Path, config: dict) -> dict:
             target_ms = 1000
 
         # Support voice selection based on segment or fallback to default
-        voice_id = segment.get("voice_id", default_voice)
+        voice_id = segment.get("voice_id") or default_voice
         emotion = segment.get("emotion", "neutral")
 
         seg_output = output_root / "clips" / f"{segment_id.replace(':', '_')}.wav"
@@ -118,6 +118,9 @@ def run_stage(stage: str, source: Path, config: dict) -> dict:
     if stage == "PROPAINTER":
         from autodub.adapters.propainter import run
         return run(source, config)
+    if stage == "VISION_RENDER":
+        from autodub.adapters.subtitle_video import run
+        return run(source, config)
     raise ValueError(f"Unsupported model stage: {stage}")
 
 
@@ -131,7 +134,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         request = json.loads(request_path.read_text(encoding="utf-8"))
         if (not isinstance(request, dict) or request.get("schema_version") != 1
-                or request.get("stage") not in {"ASR", "ALIGNING", "TRANSLATING", "SEPARATING", "TTS", "PROPAINTER"}
+                or request.get("stage") not in {"ASR", "ALIGNING", "TRANSLATING", "SEPARATING", "TTS", "PROPAINTER", "VISION_RENDER"}
                 or not isinstance(request.get("config"), dict)):
             return 2
         stage = request["stage"]

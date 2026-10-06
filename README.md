@@ -2,7 +2,9 @@
 
 Web cá nhân chuyển phim tiếng Trung sang thoại Việt và Vietsub, giữ non-verbal/SFX, xóa subtitle Trung sau review ROI. Yêu cầu gốc ở `docs/CN2VI_AutoDub_Implementation_Guide_v1.0.docx`.
 
-**Phiên bản 0.1 triển khai nền tảng Phase 1 và bộ benchmark Phase 0.** Có tạo Series, glossary, upload tiếp tục theo offset, queue ưu tiên, FFprobe, checkpoint, SSE, drain và xuất metadata workspace. Adapters model có thể chạy độc lập qua benchmark CLI; chưa tích hợp pipeline lồng tiếng vào web, nên episode vẫn dừng ở CHECKPOINTED trước ASR.
+**Pipeline Phase 2 đã được nối vào scheduler/web trên main `01d9e7c`.** Nhánh phát triển này bổ sung checkpoint theo từng stage, kiểm duyệt lời thoại/thời lượng, QC âm thanh và xử lý Vietsub/ROI. Chi tiết luồng và giới hạn ở [PIPELINE_RUNTIME](docs/PIPELINE_RUNTIME.md); kết quả cloud được ghi riêng và không thay thế đánh giá chất lượng phim thật.
+
+Trong quy trình làm việc hiện tại, máy local dùng để sửa và đồng bộ mã; cài đặt, test, build và inference chạy trên GPU cloud. Các lệnh local bên dưới là tham khảo cho môi trường phát triển khác.
 
 ## Chạy local
 
@@ -57,8 +59,8 @@ Docker core dùng Ubuntu 24.04 và chạy non-root, named volume `/data`. Nếu 
 
 1. Tạo Series, đặt số ưu tiên (nhỏ hơn chạy trước).
 2. Chọn/kéo video. Chunk tối đa 8 MiB, hiện throughput đo được. Upload ngắt thì chọn lại cùng tệp từ cùng browser để tiếp tục; mapping local dựa trên Series, tên, size và lastModified. Không đổi nội dung tệp giữa các lần resume.
-3. Chọn Bắt đầu/hàng đợi. FFprobe kiểm tra video + audio, hash source đối chiếu, lưu checkpoint. Video không hợp lệ thành FAILED; tập khác vẫn được chuẩn bị.
-4. Xem nguồn hoặc tải checkpoint JSON. CHECKPOINTED/ASR thể hiện đang chờ provider; không phải preview lồng tiếng Việt.
+3. Chọn chế độ đầu ra rồi upload: xóa sub Trung + Vietsub, thêm Vietsub, hoặc chỉ lồng tiếng. Bắt đầu/hàng đợi kiểm tra nguồn rồi chạy các stage đã cấu hình; runtime thiếu sẽ báo lỗi thay vì giả định model sẵn sàng.
+4. Duyệt lời thoại khi cần, chọn vùng phụ đề khi thay sub Trung. Dòng quá dài cần sửa hoặc chọn giữ âm gốc; không tự cắt đuôi giọng. Xem nguồn/bản Việt và tải artifact khi được tạo.
 5. Drain: chặn start mới, đợi stage hiện tại, báo có thể tắt. Resume để nhận việc. Xuất workspace tải metadata `.aidub`, không chứa media/credentials. **Import và portable resume đầy đủ chưa có.** Giữ video gốc và volume hiện tại.
 6. Xóa episode/Series bằng UI khi muốn dọn tệp; server không tự xóa source/output.
 
@@ -84,7 +86,7 @@ Test bao phủ auth/CSRF, upload resume/offset/hash và crash rename, state mach
 
 OCR, LaMa và TTS ONNX đã chạy trên CPU với clip tổng hợp. Clip này chỉ xác minh đường chạy; chất lượng phim thật, GPU và mục tiêu chi phí chưa được xác nhận. Xem [CPU smoke](docs/CPU_SMOKE.md), [chuẩn bị corpus](docs/BENCHMARK_CORPUS.md), [sinh suite](docs/BENCHMARK_PLAN.md), [cloud runbook](docs/CLOUD_RUNBOOK.md) và [điểm chuyển sang GPU](docs/PRE_GPU_READINESS.md).
 
-Cloud setup dành cho Ubuntu 24.04 x86_64/Python 3.12, reference RTX 5060 Ti 16 GB. [Bộ cài một file](docs/AUTOMATIC_CLOUD_SETUP.md) tự giải nén code/giao diện, cài môi trường, tải/kiểm tra weights và chạy preflight. Tạo bằng `scripts/package_cloud.ps1`, chuyển `.cache/cn2vi-cloud-setup.run` sang cloud rồi chạy `bash cn2vi-cloud-setup.run`. `--dry-run` chỉ xem kế hoạch. Tải HTTP có retry/resume và chỉ niêm phong model khi checksum khớp. Không cần Node/npm trên cloud; NVIDIA driver phải hoạt động sẵn.
+Bootstrap native hỗ trợ Ubuntu 22.04/24.04 x86_64 và Python 3.12; host hiện tại là RTX 3060 12 GB trong container Ubuntu 22.04. Dùng `bash scripts/cloud_restore.sh` khi đã có rclone profile và backup Drive, hoặc `bash scripts/setup_new_server.sh` cho cài mới. Restore không tự xác nhận tính tương thích venv; cần kiểm tra môi trường trên host. Bộ preflight/reference cũ dưới đây dành cho RTX 5060 Ti 16 GB và cần phân biệt với host hiện tại. [Bộ cài một file](docs/AUTOMATIC_CLOUD_SETUP.md) tự giải nén code/giao diện, cài môi trường, tải/kiểm tra weights và chạy preflight. Tạo bằng `scripts/package_cloud.ps1`, chuyển `.cache/cn2vi-cloud-setup.run` sang cloud rồi chạy `bash cn2vi-cloud-setup.run`. `--dry-run` chỉ xem kế hoạch. Tải HTTP có retry/resume và chỉ niêm phong model khi checksum khớp. Không cần Node/npm trên cloud; NVIDIA driver phải hoạt động sẵn.
 
 Tạo plan trên máy sẽ chạy benchmark để đường dẫn media/interpreter đúng. Benchmark, API key và video thật được cấu hình sau khi setup thành công; repo không tự thuê hoặc tắt máy cloud. Nếu đã có checkout, `bash scripts/cloud_setup.sh` chạy cùng chuỗi setup; các lệnh riêng trong runbook vẫn có thể dùng để chẩn đoán.
 

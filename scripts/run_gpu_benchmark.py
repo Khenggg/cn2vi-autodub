@@ -172,7 +172,7 @@ def main():
         print(f"[ERROR] Video file not found: {video_path}")
         sys.exit(1)
 
-    print(f"=== [Phase 0] GPU Benchmark on NVIDIA RTX 5060 Ti ===")
+    print("=== [Phase 0] GPU Benchmark on NVIDIA RTX 5060 Ti ===")
     print(f"Target Video: {video_path}")
     meta = probe_video(video_path)
     print(f"Video Info: {meta['duration_s']:.1f}s ({meta['duration_s']/60:.1f}m), {meta['width']}x{meta['height']}, {meta['size_mb']} MB")

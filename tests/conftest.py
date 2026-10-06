@@ -7,7 +7,8 @@ from autodub.main import create_app
 
 @pytest.fixture
 def app(tmp_path):
-    return create_app(Settings(data_dir=tmp_path, admin_token="test-token", frontend_dir=tmp_path / "no-ui"), start_worker=False)
+    return create_app(Settings(data_dir=tmp_path, admin_token="test-token", frontend_dir=tmp_path / "no-ui",
+                               models_dir=tmp_path / "models", venvs_dir=tmp_path / "venvs", enable_pipeline=False), start_worker=False)
 
 
 @pytest.fixture

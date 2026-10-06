@@ -42,13 +42,23 @@ RUN_GROUP="$(id -gn "${RUN_USER}")"
 "${SUDO[@]}" apt-get update
 "${SUDO[@]}" apt-get install -y --no-install-recommends \
   ffmpeg git fonts-dejavu-core fonts-liberation fonts-noto-core fonts-noto-cjk \
-  python3.12 python3.12-venv python3-pip tini
+  python3 python3-venv python3-pip curl xz-utils tini
 
-if ! command -v python3.12 >/dev/null 2>&1; then
-  echo "cloud_bootstrap: python3.12 package installation did not provide python3.12." >&2
-  exit 1
+if [[ "${VERSION_ID}" == "24.04" ]]; then
+  "${SUDO[@]}" apt-get install -y --no-install-recommends python3.12 python3.12-venv
 fi
-python3.12 -c 'import sys; assert sys.version_info[:2] == (3, 12), sys.version'
+if command -v python3.12 >/dev/null 2>&1; then
+  PYTHON_BIN="$(command -v python3.12)"
+else
+  # Ubuntu 22.04 does not provide Python 3.12 in its standard apt repositories.
+  TOOL_ENV="${DATA_ROOT}/cache/bootstrap-tools"
+  "${SUDO[@]}" install -d -o "${RUN_USER}" -g "${RUN_GROUP}" "${DATA_ROOT}/cache"
+  python3 -m venv "${TOOL_ENV}"
+  "${TOOL_ENV}/bin/python" -m pip install "uv==0.9.6"
+  "${TOOL_ENV}/bin/uv" python install 3.12.12
+  PYTHON_BIN="$("${TOOL_ENV}/bin/uv" python find 3.12.12)"
+fi
+"${PYTHON_BIN}" -c 'import sys; assert sys.version_info[:2] == (3, 12), sys.version'
 
 # Own only the dedicated directories; preserve unrelated files below /data.
 "${SUDO[@]}" install -d -o "${RUN_USER}" -g "${RUN_GROUP}" \
@@ -70,8 +80,9 @@ create_or_update_env() {
   local requirements_file="${2:-}"
   local env_path="${VENV_ROOT}/${name}"
   if [[ ! -x "${env_path}/bin/python" ]]; then
-    python3.12 -m venv "${env_path}"
+    "${PYTHON_BIN}" -m venv "${env_path}"
   fi
+  local python="${env_path}/bin/python"
   local st_ver="${SETUPTOOLS_VERSION}"
   if [[ "${name}" == bandit ]]; then
     st_ver="69.5.1"

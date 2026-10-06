@@ -78,13 +78,16 @@ def test_source_corruption_is_rejected(client, app, uploaded, monkeypatch):
 
 def test_restart_recovers_interrupted_preparation(client, app, uploaded, monkeypatch):
     monkeypatch.setattr("autodub.scheduler.probe_media", lambda *_: MEDIA)
-    app.state.db.transition(uploaded["id"], "PREPARING", "Simulated crash")
+    app.state.db.transition(uploaded["id"], "PREPARING", "Simulated crash", queue_requested=1)
     checkpoint = app.state.settings.data_dir / "checkpoints" / uploaded["id"] / "state.json"
     # Drain state is preserved across process restarts; recovery remains queued until resume.
     app.state.scheduler.drain()
     app.state.scheduler.start()
     try:
         assert client.get(f"/api/episodes/{uploaded['id']}").json()["status"] == "QUEUED"
+        episode = app.state.db.one("SELECT next_stage,queue_requested FROM episode WHERE id=?",
+                                   (uploaded["id"],))
+        assert episode["next_stage"] == "PREPARING" and episode["queue_requested"] == 1
         assert not checkpoint.exists()
         assert app.state.scheduler.state() == "READY_TO_SHUTDOWN"
     finally:

@@ -29,19 +29,18 @@ bash "${SCRIPT_DIR}/cloud_bootstrap.sh"
 # 3. Install SOTA Audio Separator (Mel-RoFormer / Kim_Vocal_2 support)
 echo "[INFO] Installing RoFormer audio-separator in separation venv..."
 if [[ -x "${VENV_ROOT}/bandit/bin/pip" ]]; then
-    "${VENV_ROOT}/bandit/bin/pip" install --no-cache-dir "audio-separator[gpu]" || \
-    "${VENV_ROOT}/bandit/bin/pip" install --no-cache-dir "audio-separator" || true
+    "${VENV_ROOT}/bandit/bin/python" -m pip install --no-cache-dir "audio-separator[gpu]"
+    "${VENV_ROOT}/bandit/bin/python" -m pip check
 fi
 
-# 4. Model Assets Download (ASR, Forced Aligner, VieNeu-TTS)
-# NOTE: Translation model (Qwen 9.3GB) is SKIPPED because DeepSeek-V3 API is used!
-echo "[INFO] Fetching required models (ASR, Aligner, TTS)..."
+# 4. Download and verify the lock's runtime assets. No model inference here.
 CORE_PYTHON="${VENV_ROOT}/core/bin/python"
-if [[ -x "${CORE_PYTHON}" ]]; then
-    "${CORE_PYTHON}" -m autodub.model_assets download --profile asr || true
-    "${CORE_PYTHON}" -m autodub.model_assets download --profile tts || true
-    "${CORE_PYTHON}" -m autodub.model_assets download --profile bandit || true
-fi
+[[ -x "${CORE_PYTHON}" ]] || { echo "Core environment is missing" >&2; exit 1; }
+cd "${REPO_DIR}"
+MODEL_IDS=(qwen-asr qwen-aligner vieneu-turbo vieneu-turbo-onnx moss-torch moss-onnx
+           lama-onnx rapidocr-v6 bandit-erb48 bandit-code)
+"${CORE_PYTHON}" -m autodub.model_assets fetch --root "${DATA_DIR}/models" --only "${MODEL_IDS[@]}"
+"${CORE_PYTHON}" -m autodub.model_assets verify --root "${DATA_DIR}/models" --only "${MODEL_IDS[@]}"
 
 # 5. Check DeepSeek API key configuration
 if [[ -f "${REPO_DIR}/docs/API.txt.txt" ]]; then
@@ -49,13 +48,14 @@ if [[ -f "${REPO_DIR}/docs/API.txt.txt" ]]; then
 elif [[ -n "${DEEPSEEK_API_KEY:-}" ]]; then
     echo "[INFO] DEEPSEEK_API_KEY environment variable is set."
 else
-    echo "[WARNING] No DeepSeek API key found. Place your key in docs/API.txt.txt or set DEEPSEEK_API_KEY."
+    echo "[WARNING] No DeepSeek API configuration found; translation needs the existing provider configuration before inference."
 fi
 
 # 6. Start the Web UI
 echo "[INFO] Starting AutoDub Web UI..."
-bash "${SCRIPT_DIR}/start_web.sh" restart
+bash "${SCRIPT_DIR}/cloud_frontend.sh"
+DATA_DIR="${DATA_DIR}" AUTODUB_VENV_ROOT="${VENV_ROOT}" bash "${SCRIPT_DIR}/start_web.sh" start
 
 echo "=========================================================="
-echo "  Deployment Complete! System is ready to dub videos."
+echo "  Dependencies and model files verified; validate inference before processing full videos."
 echo "=========================================================="

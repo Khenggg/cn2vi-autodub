@@ -29,18 +29,21 @@ needs_ffmpeg = pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg
 
 
 @needs_ffmpeg
-@pytest.mark.parametrize(("clip_ms", "target_ms", "review"), [
-    (3000, 1000, True),    # far too long: speed clamped to the maximum, cut and flagged
-    (1300, 1000, False),   # 30 % long: sped up to fit, no review
-    (400, 1000, False),    # far too short: slowed a little, padded with silence
+@pytest.mark.parametrize(("clip_ms", "target_ms", "review", "action"), [
+    (3000, 1000, True, "REWRITE"),  # do not cut speech to force it into the slot
+    (1300, 1000, True, "REWRITE"),
+    (400, 1000, True, "REWRITE"),
 ])
-def test_elastic_fit_always_matches_the_slot(tmp_path, clip_ms, target_ms, review):
+def test_elastic_fit_never_discards_speech(tmp_path, clip_ms, target_ms, review, action):
     clip, out = tmp_path / "clip.wav", tmp_path / "out.wav"
     _tone(clip, clip_ms)
     info = audio_mix.fit_voice(clip, out, target_ms, elastic=True)
-    assert abs(_frames_ms(out) - target_ms) <= 20
     assert info["review_required"] is review
-    assert info["action"] != "REWRITE"
+    assert info["action"] == action
+    if action == "REWRITE":
+        assert not out.exists()
+    else:
+        assert abs(_frames_ms(out) - target_ms) <= 20
 
 
 @needs_ffmpeg

@@ -8,7 +8,7 @@ import zipfile
 from pathlib import PurePosixPath
 
 from autodub.config import Settings
-from autodub.contracts import EpisodeCreate, GlossaryEntry, Roi, SeriesCreate, SeriesPatch
+from autodub.contracts import EpisodeCreate, GlossaryEntry, Roi, Segment, SeriesCreate, SeriesPatch
 from autodub.storage import Database, now_ms, safe_path, sha256_file
 
 
@@ -46,6 +46,60 @@ class Service:
             issue["details"] = json.loads(issue.pop("details_json"))
         episode["artifacts"] = self.db.rows("SELECT id,kind,bytes FROM artifact WHERE episode_id=?", (identifier,))
         return episode
+
+    ACTIVE_STATES = {"PREPARING", "ASR", "ALIGNING", "TRANSLATING", "SEPARATING", "TTS",
+                     "TIMING", "AUDIO_MIX", "QC", "OCR_VERIFY", "TEXT_REMOVAL", "SUBTITLE_RENDER", "ENCODING"}
+
+    def episode_segments(self, identifier: str) -> list[dict]:
+        self.require("episode", identifier)
+        rows = self.db.rows("SELECT contract_json FROM segment WHERE episode_id=? ORDER BY start_ms,end_ms", (identifier,))
+        return [Segment.model_validate_json(row["contract_json"]).model_dump() for row in rows]
+
+    def update_episode_segments(self, identifier: str, segments: list[Segment]) -> list[dict]:
+        if len(segments) > 100000:
+            raise ValueError("Too many segments")
+        with self.db.lock, self.db.connect() as connection:
+            episode = connection.execute("SELECT * FROM episode WHERE id=?", (identifier,)).fetchone()
+            if episode is None:
+                raise LookupError("Episode not found")
+            if episode["status"] not in {"NEEDS_REVIEW", "CHECKPOINTED"}:
+                raise Conflict("Edit dialogue while the episode is checkpointed or awaiting review")
+            rows = connection.execute("SELECT id,contract_json FROM segment WHERE episode_id=?", (identifier,)).fetchall()
+            existing = {}
+            for row in rows:
+                contract = Segment.model_validate_json(row["contract_json"])
+                if contract.id in existing:
+                    raise Conflict("Duplicate stored segment IDs")
+                existing[contract.id] = (row["id"], contract)
+            if len(segments) != len(existing) or {s.id for s in segments} != set(existing):
+                raise ValueError("Keep the same segment IDs without additions or removals")
+            previous_end = 0
+            for segment in segments:
+                if (episode["duration_ms"] is None or segment.start_ms < previous_end
+                        or segment.end_ms > episode["duration_ms"]):
+                    raise ValueError("Segments must be ordered and remain within the source timeline")
+                previous_end = segment.end_ms
+                previous_word = segment.start_ms
+                for word in segment.words:
+                    if not word.t.strip() or word.s < previous_word:
+                        raise ValueError("Words must be nonempty, ordered, and nonoverlapping")
+                    previous_word = word.e
+                if segment.action not in {"DUB", "KEEP"} or segment.needs_review:
+                    raise ValueError("Choose DUB or KEEP and approve each reviewed line")
+                if segment.action == "DUB" and (not segment.words or not segment.dub_vi.strip()):
+                    raise ValueError("DUB requires timed source words and Vietnamese dialogue")
+                db_id, original = existing[segment.id]
+                segment.confidence = original.confidence
+                connection.execute(
+                    "UPDATE segment SET start_ms=?,end_ms=?,zh_text=?,subtitle_vi=?,dub_vi=?,confidence=?,action=?,status=?,contract_json=? WHERE episode_id=? AND id=?",
+                    (segment.start_ms, segment.end_ms, segment.zh_text, segment.subtitle_vi, segment.dub_vi,
+                     segment.confidence.get("asr"), segment.action, "APPROVED", segment.model_dump_json(), identifier, db_id))
+            codes = ("DURATION_REWRITE_REQUIRED", "ALIGNMENT_REVIEW_REQUIRED", "TRANSCRIPT_REVIEW_REQUIRED",
+                     "MISSING_TTS_CLIP", "AUDIO_QC_FAILED")
+            connection.execute("UPDATE issue SET resolved=1 WHERE episode_id=? AND code IN (" + ",".join("?" for _ in codes) + ")",
+                               (identifier, *codes))
+        self.db.event(identifier, "REVIEWED", "Dialogue edits saved; resume processing")
+        return self.episode_segments(identifier)
 
     def create_series(self, payload: SeriesCreate) -> dict:
         title = payload.title.strip()
@@ -92,6 +146,7 @@ class Service:
                 raise Conflict("Episode ordinal already exists in this Series") from error
             folder.mkdir(parents=True, exist_ok=True)
             (folder / "source.part").touch()
+            self.db.execute("UPDATE episode SET flags_json=? WHERE id=?", (json.dumps(["SUBTITLE_MODE=" + payload.subtitle_mode]), identifier))
             self.db.event(identifier, "UPLOADING", "Upload slot created")
             return self.episode_detail(identifier)
 
@@ -139,9 +194,19 @@ class Service:
             episode = self.require("episode", identifier)
             if worker_state != "ACCEPTING":
                 raise Conflict("Worker is drained; resume it first")
-            if episode["status"] == "CHECKPOINTED":
+            if episode["status"] in {"CHECKPOINTED", "NEEDS_REVIEW"}:
                 if not self.settings.enable_pipeline:
                     raise Conflict("ASR provider is not configured yet; media checkpoint is saved")
+                if episode["status"] == "NEEDS_REVIEW":
+                    if self.db.one("SELECT id FROM issue WHERE episode_id=? AND code='ROI_REQUIRED' AND resolved=0", (identifier,)):
+                        raise Conflict("Select the subtitle region before continuing")
+                    review_codes = ("DURATION_REWRITE_REQUIRED", "ALIGNMENT_REVIEW_REQUIRED", "TRANSCRIPT_REVIEW_REQUIRED", "MISSING_TTS_CLIP")
+                    unresolved_review = self.db.one(
+                        "SELECT id FROM issue WHERE episode_id=? AND resolved=0 AND code IN (" + ",".join("?" for _ in review_codes) + ")",
+                        (identifier, *review_codes))
+                    if unresolved_review or any(s["needs_review"] or s["action"] == "NEEDS_REVIEW" for s in self.episode_segments(identifier)):
+                        raise Conflict("Resolve the flagged dialogue before continuing")
+                    self.db.transition(identifier, "RETRYING", "Dialogue review completed")
                 self.db.transition(identifier, "QUEUED", "Pipeline processing queued", queue_requested=1)
                 return self.episode_detail(identifier)
             if episode["status"] != "QUEUED" or not episode["source_sha256"]:
@@ -155,7 +220,7 @@ class Service:
         with self.db.lock:
             episode = self.require("episode", identifier)
             if episode["status"] != "FAILED":
-                raise Conflict("Only failed preparation can be retried in phase 1")
+                raise Conflict("Only failed episodes can be retried")
             if worker_state != "ACCEPTING":
                 raise Conflict("Resume worker before retry")
             self.db.transition(identifier, "RETRYING", "Retry requested")
@@ -164,16 +229,20 @@ class Service:
             return self.episode_detail(identifier)
 
     def set_roi(self, identifier: str, roi: Roi) -> dict:
-        episode = self.require("episode", identifier)
-        if episode["status"] not in {"PREVIEW_READY", "AWAITING_ROI"}:
-            raise Conflict("Review the Phase A preview before selecting a subtitle ROI")
-        payload = roi.model_dump_json()
-        if roi.scope == "series":
-            self.db.execute("UPDATE series SET roi_json=? WHERE id=?", (payload, episode["series_id"]))
-        self.db.execute("UPDATE episode SET roi_json=? WHERE id=?", (payload, identifier))
-        if episode["status"] == "PREVIEW_READY":
-            self.db.transition(identifier, "AWAITING_ROI", "ROI saved; final processing awaits confirmation")
-        return self.episode_detail(identifier)
+        with self.db.lock:
+            episode = self.require("episode", identifier)
+            awaiting_region = (episode["status"] == "NEEDS_REVIEW" and episode["next_stage"] == "VISION_RENDER")
+            if episode["status"] not in {"PREVIEW_READY", "AWAITING_ROI"} and not awaiting_region:
+                raise Conflict("Select a subtitle region when the preview is ready or region review is requested")
+            payload = roi.model_dump_json()
+            with self.db.connect() as connection:
+                if roi.scope == "series":
+                    connection.execute("UPDATE series SET roi_json=? WHERE id=?", (payload, episode["series_id"]))
+                connection.execute("UPDATE episode SET roi_json=? WHERE id=?", (payload, identifier))
+                connection.execute("UPDATE issue SET resolved=1 WHERE episode_id=? AND code='ROI_REQUIRED'", (identifier,))
+            if episode["status"] == "PREVIEW_READY":
+                self.db.transition(identifier, "AWAITING_ROI", "ROI saved; final processing awaits confirmation")
+            return self.episode_detail(identifier)
 
     def glossary(self, identifier: str, entries: list[GlossaryEntry]) -> list[dict]:
         self.require("series", identifier)
@@ -194,7 +263,7 @@ class Service:
     def delete_episode(self, identifier: str):
         with self.db.lock:
             episode = self.require("episode", identifier)
-            if episode["status"] == "PREPARING":
+            if episode["status"] in self.ACTIVE_STATES:
                 raise Conflict("Drain the active worker before deleting this episode")
             folders = [self.settings.data_dir / "uploads" / episode["series_id"] / identifier,
                        self.settings.data_dir / "work" / identifier, self.settings.data_dir / "checkpoints" / identifier]
@@ -211,7 +280,7 @@ class Service:
         with self.db.lock:
             self.require("series", identifier)
             episodes = self.db.rows("SELECT id,status FROM episode WHERE series_id=?", (identifier,))
-            if any(episode["status"] == "PREPARING" for episode in episodes):
+            if any(episode["status"] in self.ACTIVE_STATES for episode in episodes):
                 raise Conflict("Drain the active worker before deleting this Series")
             for episode in episodes:
                 self.delete_episode(episode["id"])

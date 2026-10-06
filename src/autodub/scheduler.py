@@ -2,6 +2,7 @@ import json
 import threading
 import uuid
 
+from autodub.checkpoint import CheckpointError, fingerprint, read_checkpoint
 from autodub.config import Settings
 from autodub.media import MediaError, probe_media
 from autodub.storage import Database, atomic_json, now_ms, safe_path, sha256_file
@@ -20,21 +21,61 @@ class Scheduler:
         self.wake_event = threading.Event()
         self.thread: threading.Thread | None = None
         self.active: str | None = None
+        self.active_pipeline = None
 
     def start(self):
         with self.db.lock:
-            # A probe is idempotent; recover a process killed before its atomic checkpoint.
-            for row in self.db.rows("SELECT id FROM episode WHERE status='PREPARING'"):
-                self.db.transition(row["id"], "CHECKPOINTED", "Preparation interrupted; safe to retry")
-                self.db.transition(row["id"], "QUEUED", "Recovered preparation", queue_requested=1)
+            active_states = ("PREPARING", "ASR", "ALIGNING", "TRANSLATING", "SEPARATING",
+                             "TTS", "TIMING", "AUDIO_MIX", "QC", "PREVIEW_READY",
+                             "AWAITING_ROI", "OCR_VERIFY", "TEXT_REMOVAL", "SUBTITLE_RENDER", "ENCODING")
+            marks = ",".join("?" for _ in active_states)
+            for row in self.db.rows(f"SELECT * FROM episode WHERE status IN ({marks})", active_states):
+                next_stage = "ASR"
+                try:
+                    source = safe_path(self.settings.data_dir, row["source_path"])
+                    if sha256_file(source) != row["source_sha256"]:
+                        raise CheckpointError("Source checksum mismatch")
+                    checkpoint_path = self.settings.data_dir / "checkpoints" / row["id"] / "state.json"
+                    if row["status"] == "PREPARING" and not checkpoint_path.is_file():
+                        # Media probing had not produced a durable checkpoint. Requeue
+                        # preparation itself, retaining the request even if the worker
+                        # was drained before it restarted.
+                        next_stage = "PREPARING"
+                        self.db.transition(row["id"], "CHECKPOINTED", "Interrupted preparation recovered",
+                                           next_stage=next_stage,
+                                           queue_requested=row["queue_requested"])
+                        if row["queue_requested"]:
+                            self.db.transition(row["id"], "QUEUED", "Recovered interrupted preparation",
+                                               queue_requested=1, next_stage=next_stage)
+                        continue
+                    from autodub.pipeline import Pipeline
+                    pipeline = Pipeline(self.db, self.settings)
+                    config_fp = fingerprint({"runner": pipeline._runner_config(),
+                                             "duration_ms": row.get("duration_ms") or 1000,
+                                             "subtitle_mode": pipeline._subtitle_mode_for_episode(row)})
+                    checkpoint = read_checkpoint(self.settings.data_dir, row["id"],
+                                                 row["source_sha256"], config_fp)
+                    next_stage = checkpoint.get("next_stage") or "ASR"
+                except (CheckpointError, OSError, ValueError):
+                    from autodub.pipeline import Pipeline
+                    Pipeline(self.db, self.settings)._fail(
+                        row["id"], "CHECKPOINT_INVALID", "Saved pipeline checkpoint is invalid; retry this episode")
+                    continue
+                self.db.transition(row["id"], "CHECKPOINTED", "Interrupted pipeline recovered",
+                                   next_stage=next_stage)
+                if row["queue_requested"] and self.state() == "ACCEPTING":
+                    self.db.transition(row["id"], "QUEUED", "Recovered queued pipeline",
+                                       queue_requested=1, next_stage=next_stage)
             self.thread = threading.Thread(target=self.run, name="preparation-worker", daemon=True)
             self.thread.start()
 
     def close(self):
         self.stop_event.set()
         self.wake_event.set()
+        if self.active_pipeline is not None:
+            self.active_pipeline.cancel()
         if self.thread:
-            self.thread.join(timeout=65)
+            self.thread.join()
 
     def state(self) -> str:
         return self.db.one("SELECT value FROM runtime_state WHERE key='worker_state'")["value"]
@@ -52,6 +93,9 @@ class Scheduler:
             if self.active and self.state() == "DRAINING":
                 raise ValueError("Wait for the active stage to checkpoint")
             self.db.execute("UPDATE runtime_state SET value='ACCEPTING' WHERE key='worker_state'")
+            for row in self.db.rows("SELECT id FROM episode WHERE status='CHECKPOINTED' AND queue_requested=1"):
+                self.db.transition(row["id"], "QUEUED", "Worker resumed queued checkpoint",
+                                   queue_requested=1)
             self.db.event("worker", "ACCEPTING", "Worker resumed")
         self.wake_event.set()
 
@@ -82,7 +126,7 @@ class Scheduler:
                 self.db.execute("INSERT INTO issue VALUES(?,?,?,?,?,?,?)",
                                 (uuid.uuid4().hex, episode["id"], None, code, "error",
                                  json.dumps({"message": message}), 0))
-                self.db.transition(episode["id"], "FAILED", message, queue_requested=0)
+            self.db.transition(episode["id"], "FAILED", message, queue_requested=0)
         finally:
             with self.db.lock:
                 self.active = None
@@ -98,9 +142,19 @@ class Scheduler:
         if sha256_file(path) != episode["source_sha256"]:
             raise MediaError("Source checksum mismatch; re-upload the original video")
         checkpoint = self.settings.data_dir / "checkpoints" / episode["id"] / "state.json"
-        atomic_json(checkpoint, {"schema_version": 1, "episode_id": episode["id"],
-                                "source_sha256": episode["source_sha256"], "completed_stages": ["PREPARING"],
-                                "next_stage": "ASR", "media": metadata, "created_at": now_ms()})
+        existing_checkpoint = False
+        if self.settings.enable_pipeline and checkpoint.is_file():
+            try:
+                existing = json.loads(checkpoint.read_text(encoding="utf-8"))
+                existing_checkpoint = (isinstance(existing, dict)
+                                       and existing.get("episode_id") == episode["id"]
+                                       and existing.get("source_sha256") == episode["source_sha256"])
+            except (OSError, json.JSONDecodeError):
+                existing_checkpoint = False
+        if not existing_checkpoint:
+            atomic_json(checkpoint, {"schema_version": 1, "episode_id": episode["id"],
+                                    "source_sha256": episode["source_sha256"], "completed_stages": ["PREPARING"],
+                                    "next_stage": "ASR", "media": metadata, "created_at": now_ms()})
         with self.db.lock:
             self.db.execute("DELETE FROM artifact WHERE episode_id=? AND kind='checkpoint'", (episode["id"],))
             self.db.execute("INSERT INTO artifact VALUES(?,?,?,?,?,?,?)",
@@ -108,12 +162,17 @@ class Scheduler:
                              checkpoint.relative_to(self.settings.data_dir).as_posix(), sha256_file(checkpoint),
                              checkpoint.stat().st_size, now_ms()))
             self.db.transition(episode["id"], "CHECKPOINTED", "Media ready; ASR benchmark/provider required",
-                               duration_ms=metadata["duration_ms"], progress=0.05, next_stage="ASR", queue_requested=0)
+                               duration_ms=metadata["duration_ms"], progress=0.05,
+                               next_stage=existing.get("next_stage", "ASR") if existing_checkpoint else "ASR",
+                               queue_requested=1 if self.settings.enable_pipeline else 0)
             self.db.event(episode["id"], "CHECKPOINTED", "Preparation checkpoint saved",
                           {"stage_wall_ms": now_ms() - started, "provider_ready": False})
         if self.settings.enable_pipeline:
             from autodub.pipeline import Pipeline
-            Pipeline(self.db, self.settings).run(episode, metadata)
+            self.active_pipeline = Pipeline(self.db, self.settings)
+            self.active_pipeline.run(episode, metadata,
+                                     should_stop=lambda: self.stop_event.is_set() or self.state() != "ACCEPTING")
+            self.active_pipeline = None
 
     def run(self):
         while not self.stop_event.is_set():
