@@ -34,7 +34,8 @@ fi
 printf '[1/2] Đang nén toàn bộ 10 Model AI và 5 Môi trường Python vào %s...\n' "$BACKUP_LOCAL"
 sudo rm -f "$BACKUP_LOCAL"
 sudo tar -cf "$BACKUP_LOCAL" "$DATA_ROOT/models" "$VENV_ROOT"
-sudo chown "$USER:$USER" "$BACKUP_LOCAL"
+RUN_USER="${SUDO_USER:-$USER}"
+sudo chown "$RUN_USER:$RUN_USER" "$BACKUP_LOCAL"
 
 printf 'Đã nén xong! Dung lượng file: %s\n\n' "$(ls -lh "$BACKUP_LOCAL" | awk '{print $5}')"
 
