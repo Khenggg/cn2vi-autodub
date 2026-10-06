@@ -34,13 +34,25 @@ def bounds(source: Path, config: dict) -> tuple[int, int]:
 
 
 def aligned_words(result, offset_ms: int, duration_ms: int) -> list[dict]:
-    words = []
+    raw_words = []
+    chunk_end = offset_ms + duration_ms
     for item in result:
         start = offset_ms + round(Decimal(str(item.start_time)) * 1000)
         end = offset_ms + round(Decimal(str(item.end_time)) * 1000)
-        if not offset_ms <= start < end <= offset_ms + duration_ms:
+        if not (offset_ms <= start <= chunk_end and offset_ms <= end <= chunk_end and start <= end):
             raise ValueError("Aligner returned a word outside the source chunk")
-        words.append({"t": item.text, "s": start, "e": end})
+        raw_words.append({"t": item.text, "s": start, "e": max(start + 1, end)})
+
+    words = []
+    current_time = offset_ms
+    for w in raw_words:
+        s = max(w["s"], current_time)
+        e = max(s + 1, w["e"])
+        if e > chunk_end:
+            e = chunk_end
+            s = min(s, max(offset_ms, e - 1))
+        words.append({"t": w["t"], "s": s, "e": e})
+        current_time = e
     return words
 
 

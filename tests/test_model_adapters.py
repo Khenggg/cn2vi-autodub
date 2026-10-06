@@ -20,6 +20,19 @@ def test_qwen_aligned_words_uses_integer_ms_and_rejects_out_of_chunk_times():
                            offset_ms=500, duration_ms=1000)
 
 
+def test_qwen_aligned_words_handles_instantaneous_syllables_and_prevents_overlap():
+    result = [
+        SimpleNamespace(text="不知", start_time="0.100", end_time="0.100"),
+        SimpleNamespace(text="什么", start_time="0.100", end_time="0.200"),
+    ]
+    words = qwen.aligned_words(result, offset_ms=0, duration_ms=1000)
+    assert words == [
+        {"t": "不知", "s": 100, "e": 101},
+        {"t": "什么", "s": 101, "e": 200},
+    ]
+
+
+
 def test_qwen_invalid_interval_does_not_load_model(tmp_path, monkeypatch):
     source = tmp_path / "input.wav"
     with wave.open(str(source), "wb") as stream:
