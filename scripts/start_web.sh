@@ -40,8 +40,8 @@ start_server() {
         echo "[SUCCESS] Web UI started successfully (PID: ${PID})!"
         echo "[KEY] Admin Token: ${ADMIN_TOKEN}"
         echo "[INFO] Logs: ${LOG_FILE}"
-        echo "[INFO] Forward port from local Windows PC:"
-        echo "       ssh -p 58431 -L 8080:127.0.0.1:8080 ezycloudx-admin@14.169.113.144"
+        echo "[INFO] Forward port from local PC:"
+        echo "       ssh -L 8080:127.0.0.1:8080 <username>@<server_ip>"
         echo "[INFO] Then open browser at: http://localhost:8080"
     else
         echo "[ERROR] Failed to start Web UI. Check logs:"

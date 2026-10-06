@@ -142,8 +142,10 @@ class Pipeline:
             # ---------------------------------------------------------
             # Stage 4: SEPARATING (45% -> 65%)
             # ---------------------------------------------------------
+            from autodub.adapters.roformer import is_roformer_available
+            sep_label = "Mel-RoFormer Kim_Vocal_2" if is_roformer_available() else "BandIt ERB48"
             self.db.transition(
-                ep_id, "SEPARATING", "Äang tÃ¡ch 3 track Ã¢m thanh: Thoáº¡i, BGM, SFX (BandIt ERB48)",
+                ep_id, "SEPARATING", f"Đang tách âm thanh: Thoại và BGM/SFX ({sep_label})",
                 progress=0.55, next_stage="TTS",
             )
             dub_segments = [s for s in segments if s.action == "DUB" and s.dub_vi.strip()]

@@ -70,6 +70,11 @@ def _run_tts(source: Path, config: dict) -> dict:
 
 
 def _run_separating(source: Path, config: dict) -> dict:
+    from autodub.adapters.roformer import is_roformer_available
+    from autodub.adapters.roformer import run as run_roformer
+    if is_roformer_available() or config.get("separation_provider") == "roformer":
+        return run_roformer(source, config)
+
     from autodub.adapters.bandit import run
     from autodub.media import probe_media
     # Ensure all windows meet the BandIt standard window requirement (>= 30s)

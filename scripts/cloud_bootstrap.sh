@@ -15,13 +15,13 @@ WHEEL_VERSION="0.45.1"
 TORCH_INDEX="https://download.pytorch.org/whl/cu128"
 
 if [[ ! -f /etc/os-release ]]; then
-  echo "cloud_bootstrap: /etc/os-release is missing; Ubuntu 24.04 is required." >&2
+  echo "cloud_bootstrap: /etc/os-release is missing; Ubuntu 22.04 or 24.04 is required." >&2
   exit 1
 fi
 # shellcheck disable=SC1091
 source /etc/os-release
-if [[ "${ID:-}" != ubuntu || "${VERSION_ID:-}" != 24.04 ]]; then
-  echo "cloud_bootstrap: expected Ubuntu 24.04; found ${PRETTY_NAME:-unknown OS}." >&2
+if [[ "${ID:-}" != ubuntu || ( "${VERSION_ID:-}" != "24.04" && "${VERSION_ID:-}" != "22.04" ) ]]; then
+  echo "cloud_bootstrap: expected Ubuntu 22.04 or 24.04; found ${PRETTY_NAME:-unknown OS}." >&2
   exit 1
 fi
 
