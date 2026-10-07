@@ -35,6 +35,8 @@ No dubbed segments means original audio passthrough: separation and TTS are skip
 
 ## Review and output controls
 
+The user-selected default voice is **Ngọc Huyền**. Keep this default until the user explicitly requests a change. Runtime settings, the TTS worker, and the VieNeu adapter share the same default. Explicit `VOICE_ID` or per-segment voice choices are supported; do not add automatic voice switching.
+
 New uploads default to `replace`: Vietnamese dubbing, source subtitle removal, and Vietnamese captions. The uploader can choose `burn` or `off`. Legacy episodes without an upload flag use `SUBTITLE_MODE` (default `off`).
 
 The dialogue editor reads and writes `/api/episodes/{id}/segments`. Editing is allowed only at `NEEDS_REVIEW` or `CHECKPOINTED`; the API preserves source confidence provenance and segment identity, rejects mismatched episode IDs and invalid timelines, and requires an explicit DUB/KEEP decision for each line. Voice and speaker labels can be set manually. Automatic speaker diarization is outside these changes.

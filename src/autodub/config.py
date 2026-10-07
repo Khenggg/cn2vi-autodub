@@ -3,6 +3,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 
+# User-selected default. Change only after an explicit user request.
+DEFAULT_VOICE_ID = "Ngọc Huyền"
+
+
 @dataclass(frozen=True)
 class Settings:
     data_dir: Path = field(default_factory=lambda: Path(os.getenv("DATA_DIR", "data")).resolve())
@@ -16,7 +20,7 @@ class Settings:
     models_dir: Path = field(default_factory=lambda: Path(os.getenv("MODELS_DIR", "/data/models")).resolve())
     venvs_dir: Path = field(default_factory=lambda: Path(os.getenv("VENVS_DIR", "/opt/autodub/venvs")).resolve())
     enable_pipeline: bool = field(default_factory=lambda: os.getenv("ENABLE_PIPELINE", "true" if Path("/data/models").is_dir() else "false").lower() in ("1", "true", "yes"))
-    voice_id: str = field(default_factory=lambda: os.getenv("VOICE_ID", "Trúc Ly"))
+    voice_id: str = field(default_factory=lambda: os.getenv("VOICE_ID", DEFAULT_VOICE_ID))
     subtitle_mode: str = field(default_factory=lambda: os.getenv("SUBTITLE_MODE", "off"))
     cloud_rate: int = field(default_factory=lambda: int(os.getenv("CLOUD_RATE_VND_PER_HOUR", "6000")))
     gpu_safety_mb: int = field(default_factory=lambda: int(os.getenv("GPU_FREE_VRAM_SAFETY_MB", "1800")))

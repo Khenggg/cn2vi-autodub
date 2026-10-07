@@ -12,6 +12,7 @@ from autodub.adapters.common import (
     synchronize,
     torch_device,
 )
+from autodub.config import DEFAULT_VOICE_ID
 from autodub.domain import fitting_action
 from autodub.quality import audio_qc
 
@@ -47,7 +48,7 @@ class VieNeuProvider:
             self.model = Vieneu(**kwargs)
         self.metrics["model_load_ms"] = milliseconds() - tick
 
-    def synthesize(self, text: str, voice_id: str = "Mai Anh", emotion_hint: str = "neutral",
+    def synthesize(self, text: str, voice_id: str = DEFAULT_VOICE_ID, emotion_hint: str = "neutral",
                    target_ms: int = 1000) -> dict:
         import soundfile
         if not text.strip() or target_ms <= 0:
@@ -78,7 +79,7 @@ class VieNeuProvider:
 def run(source: Path, config: dict) -> dict:
     # TTS RTF uses generated audio duration, not the source video's length.
     provider = VieNeuProvider(config)
-    result = provider.synthesize(config["text"], config.get("voice_id", "Mai Anh"),
+    result = provider.synthesize(config["text"], config.get("voice_id", DEFAULT_VOICE_ID),
                                  config.get("emotion_hint", "neutral"), int(config["target_ms"]))
     return {**identity(provider.manifests), "quality_metrics": {**result["qc"],
                 "target_ms": config["target_ms"], "duration_action": result["duration_action"],
