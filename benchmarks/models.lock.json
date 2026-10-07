@@ -634,6 +634,343 @@
           "url": "https://raw.githubusercontent.com/nltk/nltk_data/550b6625bcef1f2abff2ff770a5a0d272c9c6b2a/packages/tokenizers/punkt_tab.zip"
         }
       ]
+    },
+    {
+      "id": "firered-asr2-aed",
+      "kind": "huggingface",
+      "repo": "FireRedTeam/FireRedASR2-AED",
+      "revision": "2304afed56eacfee6256dee5937ed22ffa0b64ec",
+      "files": [
+        {
+          "path": "cmvn.ark",
+          "bytes": 1311,
+          "url": "https://huggingface.co/FireRedTeam/FireRedASR2-AED/resolve/2304afed56eacfee6256dee5937ed22ffa0b64ec/cmvn.ark",
+          "git_blob_sha1": "e26b4a310132492d05bfdd506ab3f6bbf89d9059"
+        },
+        {
+          "path": "dict.txt",
+          "bytes": 79172,
+          "url": "https://huggingface.co/FireRedTeam/FireRedASR2-AED/resolve/2304afed56eacfee6256dee5937ed22ffa0b64ec/dict.txt",
+          "git_blob_sha1": "50ac9cbd43d638b58f875e90b118ad8c9be51718"
+        },
+        {
+          "path": "model.pth.tar",
+          "bytes": 4731558506,
+          "url": "https://huggingface.co/FireRedTeam/FireRedASR2-AED/resolve/2304afed56eacfee6256dee5937ed22ffa0b64ec/model.pth.tar",
+          "sha256": "4677cbd30988d63ed3e777f6a42a1e5260a3865317f6e15e488bef40954f7054"
+        },
+        {
+          "path": "train_bpe1000.model",
+          "bytes": 251707,
+          "url": "https://huggingface.co/FireRedTeam/FireRedASR2-AED/resolve/2304afed56eacfee6256dee5937ed22ffa0b64ec/train_bpe1000.model",
+          "sha256": "473bbc157cb4eade2059b30a3c877a1c29bd50cadbfbed869ae36eeade7fee07"
+        }
+      ]
+    },
+    {
+      "id": "firered-punc",
+      "kind": "huggingface",
+      "repo": "FireRedTeam/FireRedPunc",
+      "revision": "e448fd967f44182a1c323cc30f5d89f2400c28da",
+      "files": [
+        {
+          "path": "chinese-bert-wwm-ext_vocab.txt",
+          "bytes": 109540,
+          "url": "https://huggingface.co/FireRedTeam/FireRedPunc/resolve/e448fd967f44182a1c323cc30f5d89f2400c28da/chinese-bert-wwm-ext_vocab.txt",
+          "git_blob_sha1": "ca4f9781030019ab9b253c6dcb8c7878b6dc87a5"
+        },
+        {
+          "path": "chinese-lert-base/added_tokens.json",
+          "bytes": 2,
+          "url": "https://huggingface.co/FireRedTeam/FireRedPunc/resolve/e448fd967f44182a1c323cc30f5d89f2400c28da/chinese-lert-base/added_tokens.json",
+          "git_blob_sha1": "9e26dfeeb6e641a33dae4961196235bdb965b21b"
+        },
+        {
+          "path": "chinese-lert-base/config.json",
+          "bytes": 776,
+          "url": "https://huggingface.co/FireRedTeam/FireRedPunc/resolve/e448fd967f44182a1c323cc30f5d89f2400c28da/chinese-lert-base/config.json",
+          "git_blob_sha1": "24f7bcfec46fb025e075401d619ba379134656f3"
+        },
+        {
+          "path": "chinese-lert-base/pytorch_model.bin",
+          "bytes": 411618486,
+          "url": "https://huggingface.co/FireRedTeam/FireRedPunc/resolve/e448fd967f44182a1c323cc30f5d89f2400c28da/chinese-lert-base/pytorch_model.bin",
+          "sha256": "b4ef03ee5a6ea58f973a2fe8fce42ba5d1cb006e5646c5cb32d421e9934c242d"
+        },
+        {
+          "path": "chinese-lert-base/special_tokens_map.json",
+          "bytes": 112,
+          "url": "https://huggingface.co/FireRedTeam/FireRedPunc/resolve/e448fd967f44182a1c323cc30f5d89f2400c28da/chinese-lert-base/special_tokens_map.json",
+          "git_blob_sha1": "e7b0375001f109a6b8873d756ad4f7bbb15fbaa5"
+        },
+        {
+          "path": "chinese-lert-base/tokenizer.json",
+          "bytes": 268961,
+          "url": "https://huggingface.co/FireRedTeam/FireRedPunc/resolve/e448fd967f44182a1c323cc30f5d89f2400c28da/chinese-lert-base/tokenizer.json",
+          "git_blob_sha1": "eba64ab600f7bb029b38ac391b35651e3b55f185"
+        },
+        {
+          "path": "chinese-lert-base/tokenizer_config.json",
+          "bytes": 19,
+          "url": "https://huggingface.co/FireRedTeam/FireRedPunc/resolve/e448fd967f44182a1c323cc30f5d89f2400c28da/chinese-lert-base/tokenizer_config.json",
+          "git_blob_sha1": "66051e65c65b3ec5e0b437496d1e545c5d8934b4"
+        },
+        {
+          "path": "chinese-lert-base/vocab.txt",
+          "bytes": 109540,
+          "url": "https://huggingface.co/FireRedTeam/FireRedPunc/resolve/e448fd967f44182a1c323cc30f5d89f2400c28da/chinese-lert-base/vocab.txt",
+          "git_blob_sha1": "ca4f9781030019ab9b253c6dcb8c7878b6dc87a5"
+        },
+        {
+          "path": "model.pth.tar",
+          "bytes": 406788602,
+          "url": "https://huggingface.co/FireRedTeam/FireRedPunc/resolve/e448fd967f44182a1c323cc30f5d89f2400c28da/model.pth.tar",
+          "sha256": "9a69e465132c79f639ba5a057cf06c90b2d7e36e4bbea56225ece260dcd0b0d4"
+        },
+        {
+          "path": "out_dict",
+          "bytes": 33,
+          "url": "https://huggingface.co/FireRedTeam/FireRedPunc/resolve/e448fd967f44182a1c323cc30f5d89f2400c28da/out_dict",
+          "git_blob_sha1": "4b368888f6bf5d3465cf7d9b7406c8fd2f402c4e"
+        }
+      ]
+    },
+    {
+      "id": "pyannote-community-1",
+      "kind": "huggingface",
+      "repo": "pyannote/speaker-diarization-community-1",
+      "revision": "3533c8cf8e369892e6b79ff1bf80f7b0286a54ee",
+      "files": [
+        {
+          "path": "config.yaml",
+          "bytes": 444,
+          "url": "https://huggingface.co/pyannote/speaker-diarization-community-1/resolve/3533c8cf8e369892e6b79ff1bf80f7b0286a54ee/config.yaml",
+          "git_blob_sha1": "4022db43960736338378fdb6b5a85cfdae198910",
+          "auth": "huggingface"
+        },
+        {
+          "path": "embedding/pytorch_model.bin",
+          "bytes": 26646242,
+          "url": "https://huggingface.co/pyannote/speaker-diarization-community-1/resolve/3533c8cf8e369892e6b79ff1bf80f7b0286a54ee/embedding/pytorch_model.bin",
+          "sha256": "6f10ff60898a1d185fa22e1d11e0bfa8a92efec811f11bca48cb8cafebefd929",
+          "auth": "huggingface"
+        },
+        {
+          "path": "plda/plda.npz",
+          "bytes": 133852,
+          "url": "https://huggingface.co/pyannote/speaker-diarization-community-1/resolve/3533c8cf8e369892e6b79ff1bf80f7b0286a54ee/plda/plda.npz",
+          "sha256": "9b77bcd840692710dd3496f62ecfeed8d8e5f002fd991b785079b244eab7d255",
+          "auth": "huggingface"
+        },
+        {
+          "path": "plda/xvec_transform.npz",
+          "bytes": 134376,
+          "url": "https://huggingface.co/pyannote/speaker-diarization-community-1/resolve/3533c8cf8e369892e6b79ff1bf80f7b0286a54ee/plda/xvec_transform.npz",
+          "sha256": "325f1ce8e48f7e55e9c8aa47e05d2766b7c48c4b25b8de8dd751e7a4cc5fbe8f",
+          "auth": "huggingface"
+        },
+        {
+          "path": "segmentation/pytorch_model.bin",
+          "bytes": 5906507,
+          "url": "https://huggingface.co/pyannote/speaker-diarization-community-1/resolve/3533c8cf8e369892e6b79ff1bf80f7b0286a54ee/segmentation/pytorch_model.bin",
+          "sha256": "7ad24338d844fb95985486eb1a464e32d229f6d7a03c9abe60f978bacf3f816e",
+          "auth": "huggingface"
+        }
+      ]
+    },
+    {
+      "id": "indextts2-vi",
+      "kind": "huggingface",
+      "repo": "dinhthuan/index-tts-2-vietnamese",
+      "revision": "4bbf2dea317dc2b6f1abfb526da373efc980745b",
+      "files": [
+        {
+          "path": "bpe.model",
+          "bytes": 431664,
+          "url": "https://huggingface.co/dinhthuan/index-tts-2-vietnamese/resolve/4bbf2dea317dc2b6f1abfb526da373efc980745b/bpe.model",
+          "sha256": "7705c738f938318e3370fadfd3c7404219d052e05ab00a20203e4335ce3ddc9b"
+        },
+        {
+          "path": "config.yaml",
+          "bytes": 2882,
+          "url": "https://huggingface.co/dinhthuan/index-tts-2-vietnamese/resolve/4bbf2dea317dc2b6f1abfb526da373efc980745b/config.yaml",
+          "git_blob_sha1": "98d16c3892bd2321e7da71a379ecc8e1fa4dd84e"
+        },
+        {
+          "path": "feat1.pt",
+          "bytes": 57170,
+          "url": "https://huggingface.co/dinhthuan/index-tts-2-vietnamese/resolve/4bbf2dea317dc2b6f1abfb526da373efc980745b/feat1.pt",
+          "sha256": "f219cb447d80216ba615666da2ff8d63ac544eee26657f3a7b278692bf7a67c4"
+        },
+        {
+          "path": "feat2.pt",
+          "bytes": 374866,
+          "url": "https://huggingface.co/dinhthuan/index-tts-2-vietnamese/resolve/4bbf2dea317dc2b6f1abfb526da373efc980745b/feat2.pt",
+          "sha256": "9c4292e96dee535aea9a6206e9a0c856dd578dde9212acdb16dd3ada4d12bf80"
+        },
+        {
+          "path": "gpt.pth",
+          "bytes": 1742414058,
+          "url": "https://huggingface.co/dinhthuan/index-tts-2-vietnamese/resolve/4bbf2dea317dc2b6f1abfb526da373efc980745b/gpt.pth",
+          "sha256": "f4e1848b3441aa41d85878608b82e73ea52683b0b5b4a3d4f65c6cc2dbf1529b"
+        },
+        {
+          "path": "pinyin.vocab",
+          "bytes": 9067,
+          "url": "https://huggingface.co/dinhthuan/index-tts-2-vietnamese/resolve/4bbf2dea317dc2b6f1abfb526da373efc980745b/pinyin.vocab",
+          "git_blob_sha1": "f75a1d365c3d7030c4f51f24fbfaeb53a12866ff"
+        },
+        {
+          "path": "s2mel.pth",
+          "bytes": 1202198223,
+          "url": "https://huggingface.co/dinhthuan/index-tts-2-vietnamese/resolve/4bbf2dea317dc2b6f1abfb526da373efc980745b/s2mel.pth",
+          "sha256": "aae1bb12017cbb47e7a5ce537fc82f40b6b1deb71acdb9b8f25686f32714b636"
+        },
+        {
+          "path": "vi_bpe.vocab",
+          "bytes": 166570,
+          "url": "https://huggingface.co/dinhthuan/index-tts-2-vietnamese/resolve/4bbf2dea317dc2b6f1abfb526da373efc980745b/vi_bpe.vocab",
+          "git_blob_sha1": "628785e11629e2247fc79abe926ca7e873d85ad4"
+        },
+        {
+          "path": "wav2vec2bert_stats.pt",
+          "bytes": 9343,
+          "url": "https://huggingface.co/dinhthuan/index-tts-2-vietnamese/resolve/4bbf2dea317dc2b6f1abfb526da373efc980745b/wav2vec2bert_stats.pt",
+          "sha256": "c9c176c2b8850ab2e3ba828bbfa969deaf4566ce55db5f2687b8430b87526ad2"
+        }
+      ]
+    },
+    {
+      "id": "indextts-w2v",
+      "kind": "huggingface",
+      "repo": "facebook/w2v-bert-2.0",
+      "revision": "da985ba0987f70aaeb84a80f2851cfac8c697a7b",
+      "files": [
+        {
+          "path": "config.json",
+          "bytes": 1874,
+          "url": "https://huggingface.co/facebook/w2v-bert-2.0/resolve/da985ba0987f70aaeb84a80f2851cfac8c697a7b/config.json",
+          "git_blob_sha1": "a383a594dac18459628cd2837168cd276342a31a"
+        },
+        {
+          "path": "model.safetensors",
+          "bytes": 2322063736,
+          "url": "https://huggingface.co/facebook/w2v-bert-2.0/resolve/da985ba0987f70aaeb84a80f2851cfac8c697a7b/model.safetensors",
+          "sha256": "eb890c9660ed6e3414b6812e27257b8ce5454365d5490d3ad581ea60b93be043"
+        },
+        {
+          "path": "preprocessor_config.json",
+          "bytes": 275,
+          "url": "https://huggingface.co/facebook/w2v-bert-2.0/resolve/da985ba0987f70aaeb84a80f2851cfac8c697a7b/preprocessor_config.json",
+          "git_blob_sha1": "5db61951cdf5edab6337fd84ee619500c27aaa3d"
+        }
+      ]
+    },
+    {
+      "id": "indextts-codec",
+      "kind": "huggingface",
+      "repo": "amphion/MaskGCT",
+      "revision": "265c6cef07625665d0c28d2faafb1415562379dc",
+      "files": [
+        {
+          "path": "semantic_codec/model.safetensors",
+          "bytes": 177183712,
+          "url": "https://huggingface.co/amphion/MaskGCT/resolve/265c6cef07625665d0c28d2faafb1415562379dc/semantic_codec/model.safetensors",
+          "sha256": "ec947271175d8cad75ec37e83aa487e27c97a0f72a303393772da5ffa84bddf2"
+        }
+      ]
+    },
+    {
+      "id": "indextts-speaker",
+      "kind": "huggingface",
+      "repo": "funasr/campplus",
+      "revision": "e4b6ede7ce16997aff4ae69fbca1f0175e2afede",
+      "files": [
+        {
+          "path": "campplus_cn_common.bin",
+          "bytes": 28036335,
+          "url": "https://huggingface.co/funasr/campplus/resolve/e4b6ede7ce16997aff4ae69fbca1f0175e2afede/campplus_cn_common.bin",
+          "sha256": "3388cf5fd3493c9ac9c69851d8e7a8badcfb4f3dc631020c4961371646d5ada8"
+        }
+      ]
+    },
+    {
+      "id": "indextts-vocoder",
+      "kind": "huggingface",
+      "repo": "nvidia/bigvgan_v2_22khz_80band_256x",
+      "revision": "633ff708ed5b74903e86ff1298cf4a98e921c513",
+      "files": [
+        {
+          "path": "bigvgan_generator.pt",
+          "bytes": 449228171,
+          "url": "https://huggingface.co/nvidia/bigvgan_v2_22khz_80band_256x/resolve/633ff708ed5b74903e86ff1298cf4a98e921c513/bigvgan_generator.pt",
+          "sha256": "e95ba25972d3de0628d99cd156e9315a9c018899bf739988959ebe3544080ced"
+        },
+        {
+          "path": "config.json",
+          "bytes": 1405,
+          "url": "https://huggingface.co/nvidia/bigvgan_v2_22khz_80band_256x/resolve/633ff708ed5b74903e86ff1298cf4a98e921c513/config.json",
+          "git_blob_sha1": "635bd8975629bd6d4b51c409986944a281cfe7be"
+        }
+      ]
+    },
+    {
+      "id": "firered-code",
+      "kind": "git",
+      "repo": "https://github.com/FireRedTeam/FireRedASR2S.git",
+      "revision": "4e7d9aaf4482a47cec1724807026b9b151926eb5"
+    },
+    {
+      "id": "indextts-code",
+      "kind": "git",
+      "repo": "https://github.com/iamdinhthuan/index-tts-finetune-vietnamese.git",
+      "revision": "f63b1879d4b46aac456bd00640a4833a2ae071f4"
+    },
+    {
+      "id": "bandit-infer-code",
+      "kind": "git",
+      "repo": "https://github.com/openmirlab/bandit-infer.git",
+      "revision": "8f76499a32112c68f793dab8fe1a00d49b4fbfd5"
+    },
+    {
+      "id": "bandit-v2-cinematic",
+      "kind": "http",
+      "revision": "zenodo:12701995/checkpoint-multi.ckpt",
+      "repo": "https://github.com/kwatcharasupat/bandit-v2",
+      "files": [
+        {
+          "path": "checkpoint-multi.ckpt",
+          "bytes": 446680129,
+          "sha256": "abcfccf65446752a057f4a302c941479a54b7560ebf8d7bca039d2ea98e64cfc",
+          "url": "https://zenodo.org/api/records/12701995/files/checkpoint-multi.ckpt/content"
+        }
+      ]
+    },
+    {
+      "id": "rapidocr-v6-medium",
+      "kind": "http",
+      "revision": "rapidocr:3.9.2/PP-OCRv6-medium",
+      "source_url": "https://github.com/RapidAI/RapidOCR",
+      "files": [
+        {
+          "path": "det.onnx",
+          "url": "https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.9.2/onnx/PP-OCRv6/det/PP-OCRv6_det_medium.onnx",
+          "bytes": 62119454,
+          "sha256": "92078b7355007ccfffcd4c8cd441a3afd4538904d06881b29a155e1e679907c2"
+        },
+        {
+          "path": "rec.onnx",
+          "url": "https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.9.2/onnx/PP-OCRv6/rec/PP-OCRv6_rec_medium.onnx",
+          "bytes": 76629984,
+          "sha256": "eef444829dbbe18d7fea59a3f6eb75647518d2b3a9568d27c92e42940204894b"
+        },
+        {
+          "path": "cls.onnx",
+          "url": "https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.9.2/onnx/PP-OCRv4/cls/ch_ppocr_mobile_v2.0_cls_mobile.onnx",
+          "bytes": 585532,
+          "sha256": "e47acedf663230f8863ff1ab0e64dd2d82b838fceb5957146dab185a89d6215c"
+        }
+      ]
     }
   ]
 }

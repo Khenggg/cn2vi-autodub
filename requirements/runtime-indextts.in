@@ -1,0 +1,26 @@
+-r worker-common.in
+torch==2.8.0
+torchaudio==2.8.0
+numpy==1.26.4
+transformers==4.52.1
+tokenizers==0.21.0
+accelerate==1.8.1
+descript-audiotools==0.7.2
+cn2an==0.5.23
+g2p-en==2.1.0
+jieba==0.42.1
+json5==0.12.1
+librosa==0.11.0
+modelscope==1.30.0
+munch==4.0.0
+omegaconf==2.3.0
+safetensors==0.6.2
+sentencepiece==0.2.1
+soundfile==0.13.1
+audioread==3.1.0
+matplotlib==3.10.7
+pandas==2.3.3
+tensorboard==2.20.0
+WeTextProcessing==1.0.4.1
+ffmpeg-python==0.2.0
+einops==0.8.1

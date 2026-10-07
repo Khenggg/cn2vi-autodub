@@ -73,6 +73,7 @@ def setup_cloud_env(monkeypatch, *, total_mib=16_384, free_mib=8_000, arch_list=
     monkeypatch.setitem(sys.modules, "torch", fake_torch)
     def version(package):
         return {"torchaudio": "2.8.0+cu128", "transformers": "4.57.6",
+                "kaldi-native-fbank": "1.22.3", "kaldiio": "2.18.1",
                 "faster-whisper": "1.2.1", "whisperx": "3.8.6", "ctranslate2": "4.7.0",
                 "diffusers": "0.35.2"}[package]
     monkeypatch.setattr(preflight.importlib.metadata, "version", version)

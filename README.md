@@ -1,8 +1,10 @@
 # CN2VI AutoDub
 
-Web cá nhân chuyển phim tiếng Trung sang thoại Việt và Vietsub, giữ non-verbal/SFX, xóa subtitle Trung sau review ROI. Yêu cầu gốc ở `docs/CN2VI_AutoDub_Implementation_Guide_v1.0.docx`.
+Web cá nhân chuyển phim tiếng Trung sang thoại Việt và Vietsub, giữ âm thanh phi ngôn ngữ, nhạc và SFX; tự phát hiện và xử lý phụ đề Trung. Yêu cầu gốc ở `docs/CN2VI_AutoDub_Implementation_Guide_v1.0.docx`.
 
-**Pipeline Phase 2 đã được nối vào scheduler/web trên main `01d9e7c`.** Nhánh phát triển này bổ sung checkpoint theo từng stage, kiểm duyệt lời thoại/thời lượng, QC âm thanh và xử lý Vietsub/ROI. Chi tiết luồng và giới hạn ở [PIPELINE_RUNTIME](docs/PIPELINE_RUNTIME.md); kết quả cloud được ghi riêng và không thay thế đánh giá chất lượng phim thật.
+**Nhánh CN2VI V1 đang chuẩn bị cho lượt kiểm chứng GPU đầu tiên.** Stack mới: Bandit v2 → pyannote Community-1 → FireRedASR2-AED → FireRedPunc → PP-OCRv6 Medium/context → DeepSeek → IndexTTS2 Vietnamese → ProPainter → H.264 NVENC/AAC. Không tự gọi model khác khi một model lỗi. Giọng tham chiếu cố định: Ngọc Huyền.
+
+Hai tài liệu người dùng là baseline: [kiến trúc V1](docs/requirements/CN2VI_V1_ARCHITECTURE.md), [quy định thử nghiệm](docs/requirements/TESTING_POLICY.md). [Cài máy cloud mới](docs/V1_CLOUD_INSTALL.md) giải thích lệnh cài, credentials và các giới hạn cần đo bằng GPU. Model thật, chất lượng video, tốc độ và chi phí chưa được xác nhận cho stack mới.
 
 Trong quy trình làm việc hiện tại, máy local dùng để sửa và đồng bộ mã; cài đặt, test, build và inference chạy trên GPU cloud. Các lệnh local bên dưới là tham khảo cho môi trường phát triển khác.
 
@@ -60,7 +62,7 @@ Docker core dùng Ubuntu 24.04 và chạy non-root, named volume `/data`. Nếu 
 1. Tạo Series, đặt số ưu tiên (nhỏ hơn chạy trước).
 2. Chọn/kéo video. Chunk tối đa 8 MiB, hiện throughput đo được. Upload ngắt thì chọn lại cùng tệp từ cùng browser để tiếp tục; mapping local dựa trên Series, tên, size và lastModified. Không đổi nội dung tệp giữa các lần resume.
 3. Chọn chế độ đầu ra rồi upload: xóa sub Trung + Vietsub, thêm Vietsub, hoặc chỉ lồng tiếng. Bắt đầu/hàng đợi kiểm tra nguồn rồi chạy các stage đã cấu hình; runtime thiếu sẽ báo lỗi thay vì giả định model sẵn sàng.
-4. Duyệt lời thoại khi cần, chọn vùng phụ đề khi thay sub Trung. Dòng quá dài cần sửa hoặc chọn giữ âm gốc; không tự cắt đuôi giọng. Xem nguồn/bản Việt và tải artifact khi được tạo.
+4. Lượt thử V1 tiếp tục khi có lỗi chất lượng, xuất video đầy đủ nhất có thể và báo cáo. Câu không có giọng/timing dùng được sẽ giữ âm gốc; không cắt đuôi giọng. Vùng phụ đề được phát hiện tự động, trường hợp không chắc chắn được ghi để review sau lượt thử.
 5. Drain: chặn start mới, đợi stage hiện tại, báo có thể tắt. Resume để nhận việc. Xuất workspace tải metadata `.aidub`, không chứa media/credentials. **Import và portable resume đầy đủ chưa có.** Giữ video gốc và volume hiện tại.
 6. Xóa episode/Series bằng UI khi muốn dọn tệp; server không tự xóa source/output.
 

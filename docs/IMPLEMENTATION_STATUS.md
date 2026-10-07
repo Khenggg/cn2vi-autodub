@@ -1,3 +1,17 @@
+# CN2VI V1: current development status
+
+Updated 2026-10-07. The user architecture and experimental policy in `docs/requirements` supersede the legacy stack below.
+
+- V1 web orchestration, isolated workers and pinned cloud install plan are implemented for Bandit v2, Community-1, FireRedASR2-AED/Punc, PP-OCRv6 Medium, DeepSeek, IndexTTS2 Vietnamese and ProPainter.
+- Runs freeze code/config/source/reference provenance, record stage timings/resource measurements, retain partial audio/picture after failed dependencies, and save playable output plus JSON/Markdown reports. Missing native timing is not fabricated.
+- Fresh setup installs system audio/video libraries, Python/Node, isolated pinned requirements and model assets, verifies imports and NVENC, and distinguishes environment readiness from model/video quality.
+- GitHub CI covers unit/media boundary tests, Ruff, frontend build and Docker health. Actual Linux GPU installation and all new-model inference/quality/cost measurements remain pending.
+- Initial execution is serial across episodes. Cross-episode CPU/API overlap and complete portable workspace import remain product work. Character identities and relationships without evidence remain tentative. Original audio/image is preserved when a required branch is unavailable.
+
+See [fresh cloud installation](V1_CLOUD_INSTALL.md) for prerequisites and the first GPU experiment. Legacy reports below are historical and do not verify V1 models.
+
+---
+
 # CN2VI AutoDub tiến độ triển khai
 
 Cập nhật từ main `01d9e7c` và nhánh pipeline hardening ngày 06/10/2026. Trạng thái triển khai nguồn và bằng chứng chạy là hai phần riêng; kết quả cloud mới được ghi trong báo cáo validation của nhánh.

@@ -14,6 +14,9 @@ from pathlib import Path
 from typing import Any
 
 _INTERPRETER_STAGE = {
+    "V1_SEPARATION": "separation", "V1_DIARIZATION": "diarization", "V1_ASR": "asr",
+    "V1_PUNCTUATION": "punctuation", "V1_OCR": "vision", "V1_TRANSLATION": "core",
+    "V1_TTS": "indextts", "V1_MIX": "separation", "V1_INPAINT": "vision",
     "ASR": "asr",
     "ALIGNING": "asr",
     "TRANSLATING": "translation",
@@ -26,11 +29,16 @@ _SECRET_KEY = re.compile(r"(?:secret|token|password|credential|api[_-]?key|autho
 _SAFE_ENV = (
     "PATH", "SYSTEMROOT", "WINDIR", "TEMP", "TMP", "CUDA_VISIBLE_DEVICES",
     "CUDA_HOME", "CUDA_PATH", "LD_LIBRARY_PATH", "DEEPSEEK_API_KEY",
+    "FFMPEG_BIN", "FFPROBE_BIN",
 )
 
 
 class ModelRunnerError(RuntimeError):
     """A bounded, sanitized failure from a model subprocess."""
+
+    def __init__(self, message: str, *, error_code: str = "ModelRunnerError"):
+        super().__init__(message)
+        self.error_code = error_code
 
 
 def _public_config(value: Any) -> Any:
@@ -88,11 +96,14 @@ class ModelRunner:
                                                "source": str(source), "config": job_config},
                                               ensure_ascii=False), encoding="utf-8")
             env = {key: os.environ[key] for key in _SAFE_ENV if key in os.environ}
-            package_root = str(Path(__file__).resolve().parent.parent)
+            package_root = str(Path(self.config.get("package_root", Path(__file__).resolve().parent.parent)).resolve(strict=True))
             env["PYTHONPATH"] = package_root + (os.pathsep + os.environ["PYTHONPATH"]
                                                   if os.environ.get("PYTHONPATH") else "")
             env["PYTHONIOENCODING"] = "utf-8"
             env["PYTHONUTF8"] = "1"
+            env["AUTODUB_WORKER_OUTPUT"] = str(output_root)
+            env["AUTODUB_WORKER_RUN_ROOT"] = str(Path(job_config.get("run_root", output_root)).resolve())
+            env["AUTODUB_WORKER_MODELS"] = str(Path(self.config.get("models_root", "/data/models")).resolve())
             command = [str(interpreter), "-m", "autodub.model_worker", "--request", str(request_path),
                        "--result", str(result_path)]
             creationflags = subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0
@@ -130,7 +141,7 @@ class ModelRunner:
                 if (isinstance(envelope, dict) and envelope.get("schema_version") == 1
                         and envelope.get("stage") == stage
                         and isinstance(error_code, str) and re.fullmatch(r"[A-Za-z][A-Za-z0-9]{0,63}", error_code)):
-                    raise ModelRunnerError(f"Model worker failed during {stage} ({error_code})")
+                    raise ModelRunnerError(f"Model worker failed during {stage} ({error_code})", error_code=error_code)
                 raise ModelRunnerError(f"Model worker failed during {stage}")
 
             if (not isinstance(envelope, dict) or envelope.get("schema_version") != 1

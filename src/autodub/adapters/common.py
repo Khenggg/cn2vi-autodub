@@ -31,6 +31,7 @@ def configure_offline(config: dict) -> None:
     cache = Path(config.get("cache_root", "/data/cache")).resolve()
     cache.mkdir(parents=True, exist_ok=True)
     os.environ.update(HF_HUB_OFFLINE="1", TRANSFORMERS_OFFLINE="1", HF_HOME=str(cache / "huggingface"),
+                      HF_HUB_CACHE=str(cache / "huggingface" / "hub"),
                       HF_MODULES_CACHE=str(cache / "huggingface" / "modules"))
 
 

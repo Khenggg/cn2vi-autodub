@@ -6,6 +6,7 @@ class State(StrEnum):
     QUEUED = "QUEUED"
     UPLOADING = "UPLOADING"
     PREPARING = "PREPARING"
+    V1_RUNNING = "V1_RUNNING"
     ASR = "ASR"
     ALIGNING = "ALIGNING"
     TRANSLATING = "TRANSLATING"
@@ -39,11 +40,13 @@ def check_transition(old: str, new: str) -> None:
     old, new = State(old), State(new)
     allowed = {a: {b} for a, b in zip(PIPELINE, PIPELINE[1:], strict=False)}
     allowed[State.QUEUED].add(State.PREPARING)
+    allowed[State.PREPARING].add(State.V1_RUNNING)
     allowed[State.UPLOADING].add(State.QUEUED)
     # Recovery may resume at any durable stage represented by the checkpoint.
     allowed[State.CHECKPOINTED] = {State.QUEUED, State.ASR, State.ALIGNING,
                                    State.TRANSLATING, State.SEPARATING, State.TTS,
-                                   State.TIMING, State.AUDIO_MIX, State.QC, State.ENCODING}
+                                   State.TIMING, State.AUDIO_MIX, State.QC, State.ENCODING, State.V1_RUNNING}
+    allowed[State.V1_RUNNING] = {State.ENCODING, State.COMPLETED}
     allowed[State.FAILED] = {State.RETRYING}
     allowed[State.NEEDS_REVIEW] = {State.RETRYING, State.COMPLETED}
     allowed[State.RETRYING] = {State.QUEUED}

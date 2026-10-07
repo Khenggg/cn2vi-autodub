@@ -197,9 +197,12 @@ def _messages(batch: list[Segment], glossary: dict[str, str], config: dict) -> l
         raise ValueError("scene_context must be text")
     user = {
         "translation_priority": "faithful_meaning_before_duration",
+        "character_context": config.get("character_context", {}),
         "scene_context": scene_context[:2000],
         "locked_glossary_zh_to_vi": relevant_glossary,
         "segments": [{"id": alias, "zh_text": segment.zh_text,
+                      "speaker_id": segment.speaker_id, "character_id": segment.character_id,
+                      "addressee_id": segment.addressee_id, "addressing": segment.addressing,
                       "target_duration_ms": segment.end_ms - segment.start_ms,
                       "max_vietnamese_words": word_budget(segment.end_ms - segment.start_ms),
                       "nearby_context": _context_for(config, segment.id)}

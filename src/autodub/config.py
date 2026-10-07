@@ -20,6 +20,8 @@ class Settings:
     venvs_dir: Path = field(default_factory=lambda: Path(os.getenv("VENVS_DIR", "/opt/autodub/venvs")).resolve())
     enable_pipeline: bool = field(default_factory=lambda: os.getenv("ENABLE_PIPELINE", "true" if Path("/data/models").is_dir() else "false").lower() in ("1", "true", "yes"))
     voice_id: str = field(default_factory=lambda: os.getenv("VOICE_ID", DEFAULT_VOICE_ID))
+    pipeline_generation: str = field(default_factory=lambda: os.getenv("PIPELINE_GENERATION", "v1"))
+    voice_reference: Path = field(default_factory=lambda: Path(os.getenv("VOICE_REFERENCE", "/data/voices/ngoc-huyen.wav")))
     subtitle_mode: str = field(default_factory=lambda: os.getenv("SUBTITLE_MODE", "off"))
     cloud_rate: int = field(default_factory=lambda: int(os.getenv("CLOUD_RATE_VND_PER_HOUR", "6000")))
     gpu_safety_mb: int = field(default_factory=lambda: int(os.getenv("GPU_FREE_VRAM_SAFETY_MB", "1800")))

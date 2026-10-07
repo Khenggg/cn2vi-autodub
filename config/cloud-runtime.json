@@ -1,28 +1,38 @@
 {
   "schema_version": 1,
-  "asr": "faster-whisper-large-v3-turbo",
-  "alignment": "whisperx",
-  "alignment_languages": [
-    "en",
-    "zh"
-  ],
-  "separation": "Kim_Vocal_2.onnx",
+  "pipeline_version": "CN2VI-V1",
+  "separation": "Bandit-v2-Multi-CASS",
+  "diarization": "pyannote Community-1",
+  "asr": "FireRedASR2-AED",
+  "punctuation": "FireRedPunc",
+  "ocr": "PP-OCRv6 Medium",
+  "tts": "IndexTTS2 Vietnamese",
+  "inpainting": "ProPainter",
+  "model_fallbacks": false,
   "profiles": [
     "asr",
-    "tts",
-    "vision",
-    "separation"
+    "diarization",
+    "punctuation",
+    "separation",
+    "indextts",
+    "vision"
   ],
   "assets": [
-    "whisper-asr",
-    "alignment-en",
-    "alignment-zh",
-    "vieneu-turbo",
-    "moss-torch",
-    "lama-onnx",
-    "rapidocr-v6",
-    "roformer",
-    "nltk-tokenizers"
+    "bandit-v2-cinematic",
+    "bandit-infer-code",
+    "pyannote-community-1",
+    "firered-code",
+    "firered-asr2-aed",
+    "firered-punc",
+    "indextts-code",
+    "indextts2-vi",
+    "indextts-w2v",
+    "indextts-codec",
+    "indextts-speaker",
+    "indextts-vocoder",
+    "rapidocr-v6-medium",
+    "propainter-code",
+    "propainter-weights"
   ],
-  "validation": "PENDING_FRESH_CLOUD_INSTALL_AND_MODEL_TESTS"
+  "validation": "PENDING_FRESH_CLOUD_INSTALL_AND_REAL_MODEL_RUN"
 }

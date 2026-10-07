@@ -1,0 +1,13 @@
+-r worker-common.in
+torch==2.8.0
+torchaudio==2.8.0
+torchvision==0.23.0
+numpy==1.26.4
+Pillow==11.3.0
+onnxruntime==1.22.1
+rapidocr==3.9.2
+opencv-python==4.11.0.86
+scipy==1.16.3
+imageio==2.37.0
+imageio-ffmpeg==0.6.0
+einops==0.8.1

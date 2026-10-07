@@ -1,11 +1,11 @@
 -r worker-common.in
 torch==2.8.0
 torchaudio==2.8.0
-torchvision==0.23.0
-faster-whisper==1.2.1
-whisperx==3.8.6
-transformers==4.57.6
-numpy==2.2.6
-huggingface-hub==0.36.0
-# Faster-Whisper 1.2.1 uses metadata_errors, removed by PyAV 19.
-av==16.0.1
+numpy==1.26.4
+transformers==4.51.3
+kaldiio==2.18.1
+kaldi-native-fbank==1.22.3
+sentencepiece==0.2.1
+soundfile==0.13.1
+cn2an==0.5.23
+peft==0.15.2
