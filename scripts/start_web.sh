@@ -70,7 +70,7 @@ start_server() {
     export LD_LIBRARY_PATH="${cuda_dirs}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
     export PYTHONPATH="${REPO_DIR}/src${PYTHONPATH:+:${PYTHONPATH}}"
     nohup "${PYTHON_BIN}" -m uvicorn autodub.main:create_app --factory \
-        --host 127.0.0.1 --port 8080 --workers 1 \
+        --host 127.0.0.1 --port 8080 --workers 1 --timeout-graceful-shutdown 30 \
         >> "${LOG_FILE}" 2>&1 &
     
     PID=$!

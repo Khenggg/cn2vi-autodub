@@ -101,6 +101,8 @@ class ModelRunner:
                                                   if os.environ.get("PYTHONPATH") else "")
             env["PYTHONIOENCODING"] = "utf-8"
             env["PYTHONUTF8"] = "1"
+            # Keep checksum-pinned upstream checkouts clean across model stages.
+            env["PYTHONDONTWRITEBYTECODE"] = "1"
             env["AUTODUB_WORKER_OUTPUT"] = str(output_root)
             env["AUTODUB_WORKER_RUN_ROOT"] = str(Path(job_config.get("run_root", output_root)).resolve())
             env["AUTODUB_WORKER_MODELS"] = str(Path(self.config.get("models_root", "/data/models")).resolve())

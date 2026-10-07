@@ -13,6 +13,9 @@ from autodub.adapters.runtime_paths import asset
 
 
 def check(profile: str, models_root: Path) -> None:
+    # ASR and punctuation share a pinned checkout; imports must not mutate it.
+    sys.dont_write_bytecode = True
+    os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
     os.environ["AUTODUB_WORKER_MODELS"] = str(models_root.resolve())
     config = {"models_root": str(models_root)}
     configure_offline(config)
@@ -50,8 +53,9 @@ def check(profile: str, models_root: Path) -> None:
         assert callable(InpaintGenerator)
         with tempfile.TemporaryDirectory(prefix="nvenc-preflight-") as directory:
             target = Path(directory) / "encoder.mp4"
+            # Normal video dimensions avoid hardware minimum-size rejection.
             subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i",
-                            "testsrc2=size=128x128:rate=10", "-t", "1", "-c:v", "h264_nvenc",
+                            "testsrc2=size=640x360:rate=10", "-t", "1", "-c:v", "h264_nvenc",
                             "-y", str(target)], check=True, capture_output=True, timeout=30)
             assert target.stat().st_size > 0
     else:
