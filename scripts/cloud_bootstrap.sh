@@ -65,7 +65,9 @@ fi
 
 # Own only the dedicated directories; preserve unrelated files below /data.
 "${SUDO[@]}" install -d -o "${RUN_USER}" -g "${RUN_GROUP}" \
-  "${DATA_ROOT}/models" "${DATA_ROOT}/cache" "${DATA_ROOT}/results" "${VENV_ROOT}"
+  "${DATA_ROOT}/models" "${DATA_ROOT}/cache" "${DATA_ROOT}/results" "${VENV_ROOT}" \
+  "${DATA_ROOT}/run" "${DATA_ROOT}/logs" "${DATA_ROOT}/app-state" \
+  "${DATA_ROOT}/uploads" "${DATA_ROOT}/work" "${DATA_ROOT}/outputs" "${DATA_ROOT}/checkpoints"
 
 export PIP_CACHE_DIR="${DATA_ROOT}/cache/pip"
 export HF_HOME="${DATA_ROOT}/cache/huggingface"
