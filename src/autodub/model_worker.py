@@ -6,6 +6,7 @@ import json
 import re
 from pathlib import Path
 
+from autodub.config import DEFAULT_VOICE_ID
 from autodub.storage import atomic_json
 
 
@@ -22,7 +23,7 @@ def _run_tts(source: Path, config: dict) -> dict:
     processed_ms = 0
     inference_ms = 0
     output_root = Path(config["output_dir"]).resolve()
-    default_voice = config.get("voice_id", "Trúc Ly")
+    default_voice = config.get("voice_id", DEFAULT_VOICE_ID)
 
     for segment in segments:
         if not isinstance(segment, dict):
