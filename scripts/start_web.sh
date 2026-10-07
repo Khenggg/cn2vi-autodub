@@ -4,10 +4,16 @@ set -euo pipefail
 # Scripts to manage the CN2VI AutoDub Web UI server in background
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
-DATA_DIR="${DATA_DIR:-/data}"
+DATA_DIR="${DATA_DIR:-${AUTODUB_DATA_ROOT:-/data}}"
 PID_FILE="${DATA_DIR}/run/web.pid"
 LOG_FILE="${DATA_DIR}/logs/web.log"
-PYTHON_BIN="/opt/autodub/venvs/core/bin/python"
+PYTHON_BIN="${AUTODUB_VENV_ROOT:-/opt/autodub/venvs}/core/bin/python"
+export DATA_DIR
+# Keep uploads/review available while fresh-model validation is still pending.
+export ENABLE_PIPELINE="${ENABLE_PIPELINE:-false}"
+export MODELS_DIR="${MODELS_DIR:-${DATA_DIR}/models}"
+export VENVS_DIR="${VENVS_DIR:-${AUTODUB_VENV_ROOT:-/opt/autodub/venvs}}"
+umask 077
 
 mkdir -p "${DATA_DIR}/run" "${DATA_DIR}/logs"
 
@@ -23,11 +29,25 @@ start_server() {
         fi
     fi
 
-    export ADMIN_TOKEN="${ADMIN_TOKEN:-p6DGUlHVj9PrTQ3WWJOxIIY5WhMVItTm6bW9h2_WfA0}"
-    echo "${ADMIN_TOKEN}" > "${DATA_DIR}/run/admin_token.txt"
+    if [[ -z "${ADMIN_TOKEN:-}" ]]; then
+        # Generate a fresh token; legacy launchers stored a shared public default.
+        ADMIN_TOKEN="$("${PYTHON_BIN}" -c 'import secrets; print(secrets.token_urlsafe(32))')"
+    fi
+    export ADMIN_TOKEN
+    printf '%s\n' "${ADMIN_TOKEN}" > "${DATA_DIR}/run/admin_token.txt"
+    chmod 600 "${DATA_DIR}/run/admin_token.txt"
 
     echo "[INFO] Starting CN2VI AutoDub Web UI..."
     cd "${REPO_DIR}"
+    # CTranslate2/ONNX use the pinned CUDA libraries from these isolated environments.
+    local cuda_dirs=""
+    for env_name in asr separation tts; do
+        for library_dir in "$VENVS_DIR/$env_name"/lib/python3.12/site-packages/nvidia/*/lib; do
+            if [[ -d "$library_dir" ]]; then cuda_dirs="${cuda_dirs:+$cuda_dirs:}$library_dir"; fi
+        done
+    done
+    export LD_LIBRARY_PATH="${cuda_dirs}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+    export PYTHONPATH="${REPO_DIR}/src${PYTHONPATH:+:${PYTHONPATH}}"
     nohup "${PYTHON_BIN}" -m uvicorn autodub.main:create_app --factory \
         --host 127.0.0.1 --port 8080 --workers 1 \
         >> "${LOG_FILE}" 2>&1 &
@@ -38,7 +58,7 @@ start_server() {
 
     if kill -0 "${PID}" 2>/dev/null; then
         echo "[SUCCESS] Web UI started successfully (PID: ${PID})!"
-        echo "[KEY] Admin Token: ${ADMIN_TOKEN}"
+        echo "[INFO] Admin token is stored in ${DATA_DIR}/run/admin_token.txt (owner only)."
         echo "[INFO] Logs: ${LOG_FILE}"
         echo "[INFO] Forward port from local PC:"
         echo "       ssh -L 8080:127.0.0.1:8080 <username>@<server_ip>"
@@ -56,9 +76,14 @@ stop_server() {
         if kill -0 "${PID}" 2>/dev/null; then
             echo "[INFO] Stopping Web UI (PID: ${PID})..."
             kill "${PID}" || true
-            sleep 1
+            # Allow the scheduler to cancel children and persist its checkpoint.
+            for ((attempt=0; attempt<70; attempt++)); do
+                if ! kill -0 "${PID}" 2>/dev/null; then break; fi
+                sleep 1
+            done
             if kill -0 "${PID}" 2>/dev/null; then
-                kill -9 "${PID}" || true
+                echo "[ERROR] Shutdown is still pending; preserving PID file and process." >&2
+                return 1
             fi
             rm -f "${PID_FILE}"
             echo "[SUCCESS] Web UI stopped."
@@ -78,7 +103,7 @@ status_server() {
             echo "[STATUS] Web UI is RUNNING (PID: ${PID})."
             echo "[STATUS] Listening on: 127.0.0.1:8080"
             if [ -f "${DATA_DIR}/run/admin_token.txt" ]; then
-                echo "[KEY] Admin Token: $(cat "${DATA_DIR}/run/admin_token.txt")"
+                echo "[INFO] Admin token file: ${DATA_DIR}/run/admin_token.txt"
             fi
             return 0
         fi

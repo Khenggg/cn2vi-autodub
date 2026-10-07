@@ -9,10 +9,9 @@ from autodub.adapters.local_translation import (
 from autodub.contracts import Segment
 
 
-def test_find_deepseek_api_key():
-    key = find_deepseek_api_key()
-    assert key is not None
-    assert key.startswith("sk-")
+def test_find_deepseek_api_key(monkeypatch):
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-unit-test")
+    assert find_deepseek_api_key() == "sk-unit-test"
 
 
 def test_translate_with_deepseek_mocked(tmp_path):

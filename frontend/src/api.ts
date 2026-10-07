@@ -1,3 +1,10 @@
+export type Segment = {
+  schema_version: number; id: string; start_ms: number; end_ms: number; zh_text: string;
+  words: { t: string; s: number; e: number }[]; subtitle_vi: string; dub_vi: string;
+  emotion: string; voice_id: string | null; speaker_id: string | null;
+  action: 'DUB' | 'KEEP' | 'NEEDS_REVIEW'; needs_review: boolean;
+  confidence: Record<string, number | null>;
+};
 export type Artifact = { id: string; kind: string; bytes: number };
 export type Issue = { id: string; code: string; resolved: number; details: { message?: string } };
 export type Episode = {

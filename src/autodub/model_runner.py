@@ -19,7 +19,8 @@ _INTERPRETER_STAGE = {
     "TRANSLATING": "translation",
     "SEPARATING": "bandit",
     "TTS": "tts",
-    "PROPAINTER": "vision",
+    "PROPAINTER": "bandit",
+    "VISION_RENDER": "vision",
 }
 _SECRET_KEY = re.compile(r"(?:secret|token|password|credential|api[_-]?key|authorization)", re.I)
 _SAFE_ENV = (
@@ -57,8 +58,12 @@ class ModelRunner:
             raise ValueError(f"Unsupported model stage: {stage}")
         interpreter_key = _INTERPRETER_STAGE[stage]
         interpreters = self.config.get("interpreters", {})
-        interpreter = interpreters.get(interpreter_key) or interpreters.get("default") or sys.executable
-        if not interpreter or not Path(str(interpreter)).exists():
+        interpreter = interpreters.get(interpreter_key)
+        if interpreter is None:
+            interpreter = interpreters.get("default")
+        if interpreter is not None and not Path(str(interpreter)).exists():
+            raise ModelRunnerError("Configured model interpreter is unavailable")
+        if interpreter is None:
             interpreter = sys.executable
 
         source = Path(source).resolve(strict=True)
@@ -92,6 +97,8 @@ class ModelRunner:
                        "--result", str(result_path)]
             creationflags = subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0
             timeout = self._timeout(config)
+            if stage == "VISION_RENDER" and timeout > 900:
+                raise ValueError("VISION_RENDER timeout_seconds must be at most 900")
             try:
                 process = subprocess.Popen(command, cwd=package_root, env=env,
                                            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,

@@ -22,6 +22,7 @@ class EpisodeCreate(StrictModel):
     ordinal: int = Field(ge=1, le=100000)
     filename: str = Field(min_length=1, max_length=200)
     total_bytes: int = Field(gt=0)
+    subtitle_mode: Literal["off", "burn", "replace"] = "replace"
 
 
 class Roi(StrictModel):
@@ -61,6 +62,8 @@ class Segment(StrictModel):
     subtitle_vi: str = ""
     dub_vi: str = ""
     emotion: str = "neutral"
+    voice_id: str | None = Field(default=None, min_length=1, max_length=80)
+    speaker_id: str | None = Field(default=None, min_length=1, max_length=80)
     action: Literal["DUB", "KEEP", "NEEDS_REVIEW"] = "KEEP"
     confidence: dict[str, float | None] = Field(default_factory=dict)
     needs_review: bool = False

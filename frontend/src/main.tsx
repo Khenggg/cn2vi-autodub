@@ -2,14 +2,16 @@ import { StrictMode, useCallback, useEffect, useRef, useState, type FormEvent } 
 import { createRoot } from 'react-dom/client';
 import { api, ApiError, bytes, duration, money, post, type Episode, type Series, type System } from './api';
 import './style.css';
+import { DialogueReview } from './DialogueReview';
+import { RoiReview } from './RoiReview';
 
 const labels: Record<string, string> = {
   UPLOADING: 'Đang tải lên', QUEUED: 'Sẵn sàng', PREPARING: 'Kiểm tra media',
   CHECKPOINTED: 'Sẵn sàng lồng tiếng', FAILED: 'Cần thử lại', PREVIEW_READY: 'Chờ review',
   NEEDS_REVIEW: 'Cần kiểm tra', COMPLETED: 'Hoàn tất',
-  ASR: 'Nhận diện thoại (ASR)', ALIGNING: 'Căn chỉnh từ (Align)', TRANSLATING: 'Dịch offline Qwen',
-  SEPARATING: 'Tách BGM/SFX (BandIt)', TTS: 'Sinh giọng nói (VieNeu)', TIMING: 'Khớp khẩu hình',
-  AUDIO_MIX: 'Hòa trộn âm thanh', ENCODING: 'Xuất video final',
+  ASR: 'Nhận diện thoại (ASR)', ALIGNING: 'Căn chỉnh từ (Align)', TRANSLATING: 'Dịch lời thoại',
+  SEPARATING: 'Tách thoại và âm nền', TTS: 'Sinh giọng nói (VieNeu)', TIMING: 'Khớp khẩu hình',
+  AUDIO_MIX: 'Hòa trộn âm thanh', QC: 'Kiểm tra chất lượng', TEXT_REMOVAL: 'Xóa phụ đề Trung', SUBTITLE_RENDER: 'Chèn Vietsub', ENCODING: 'Xuất video final',
 };
 
 function App() {
@@ -29,6 +31,10 @@ function App() {
   const [vi, setVi] = useState('');
   const [uploadProgress, setUploadProgress] = useState<{ name: string; percent: number; mbps: number } | null>(null);
   const [source, setSource] = useState<Episode | null>(null);
+  const [review, setReview] = useState<Episode | null>(null);
+  const [roiReview, setRoiReview] = useState<Episode | null>(null);
+  const [subtitleMode, setSubtitleMode] = useState<'replace' | 'burn' | 'off'>('replace');
+  const [playPreview, setPlayPreview] = useState(false);
   const input = useRef<HTMLInputElement>(null);
   const uploading = useRef(false);
   const active = series.find(s => s.id === selected) ?? series[0];
@@ -104,7 +110,7 @@ function App() {
           setNotice(`Tệp ${file.name} đã tải xong trước đó.`); continue;
         }
         if (!episode) {
-          episode = await post<Episode>('/episodes', { series_id: target.id, ordinal: ordinal++, filename: file.name, total_bytes: file.size });
+          episode = await post<Episode>('/episodes', { series_id: target.id, ordinal: ordinal++, filename: file.name, total_bytes: file.size, subtitle_mode: subtitleMode });
           localStorage.setItem(key, episode.id);
         }
         let offset = episode.uploaded_bytes;
@@ -131,7 +137,7 @@ function App() {
         // Starting requires the user's separate action after upload.
         await refresh();
       }
-      setNotice('Upload hoàn tất. Chọn Bắt đầu để kiểm tra media và lưu checkpoint.');
+      setNotice('Upload hoàn tất. Chọn Bắt đầu để xử lý video.');
     } catch (e) { report(e); }
     finally { uploading.current = false; setUploadProgress(null); setBusy(false); await refresh(); if (input.current) input.current.value = ''; }
   }
@@ -186,7 +192,7 @@ function App() {
           <div><span>WORKER</span><strong>{system?.worker_state === 'ACCEPTING' ? 'Sẵn sàng' : system?.worker_state === 'DRAINING' ? 'Đang drain' : 'Đã drain'}</strong>
             <button className="text-button" disabled={busy || system?.worker_state === 'DRAINING'} onClick={() => void action(() => post(system?.worker_state === 'ACCEPTING' ? '/worker/drain' : '/worker/resume'))}>{system?.worker_state === 'ACCEPTING' ? 'Drain worker →' : 'Tiếp tục worker →'}</button></div>
         </section>
-        <div className="foundation"><span className="foundation-tag">GIAI ĐOẠN 1</span><p>Upload và chuẩn bị media đã sẵn sàng. ASR, dịch, TTS và xóa phụ đề đang chờ benchmark trên GPU.</p><span>{allEpisodes.length} tập</span></div>
+        <div className="foundation"><span className="foundation-tag">PIPELINE</span><p>Xử lý theo từng bước. Các lời thoại cần sửa và vùng phụ đề cần chọn sẽ dừng để bạn duyệt.</p><span>{allEpisodes.length} tập</span></div>
         {!active ? <section className="empty-state"><div className="empty-number">01</div><h2>Bắt đầu với một Series</h2><p>Gom các tập cùng phim để dùng chung tên nhân vật,<br/>thuật ngữ và vùng phụ đề.</p><button className="primary" onClick={() => setNewSeries(true)}>Tạo Series đầu tiên</button></section> :
           <section className="series-panel"><div className="series-title"><div><p className="eyebrow">SERIES ĐANG CHỌN</p><h2>{active.title}</h2></div>
             <div className="series-actions"><label>Ưu tiên <input aria-label="Ưu tiên Series" type="number" min="0" max="10000" key={`${active.id}:${active.priority}`} defaultValue={active.priority} onBlur={e => { const value = Number(e.target.value); if (value !== active.priority) void action(() => api(`/series/${active.id}`, { method: 'PATCH', body: JSON.stringify({ priority: value }) })); }}/></label>
@@ -194,6 +200,7 @@ function App() {
             <div className="tabs"><button className={tab === 'episodes' ? 'current' : ''} onClick={() => setTab('episodes')}>Tập phim <span>{active.episodes.length}</span></button><button className={tab === 'glossary' ? 'current' : ''} onClick={() => setTab('glossary')}>Tên & thuật ngữ <span>{active.glossary.length}</span></button></div>
             {tab === 'episodes' ? <>
               <div className="queue-tools"><p>Số ưu tiên nhỏ chạy trước · tập phim theo thứ tự</p><button disabled={busy || system?.worker_state !== 'ACCEPTING' || !active.episodes.some(e => e.status === 'QUEUED' && !e.queue_requested)} onClick={() => void startAll()}>Bắt đầu hàng đợi</button></div>
+              <label className="output-choice">Kết quả<select value={subtitleMode} onChange={e => setSubtitleMode(e.target.value as typeof subtitleMode)}><option value="replace">Lồng tiếng · xóa phụ đề Trung · Vietsub</option><option value="burn">Lồng tiếng · thêm Vietsub</option><option value="off">Chỉ lồng tiếng</option></select></label>
               <div className={`drop-zone ${busy ? 'disabled' : ''}`} onDragOver={e => e.preventDefault()} onDrop={e => { e.preventDefault(); void uploadFiles(e.dataTransfer.files); }}>
                 <span className="upload-mark">↑</span><div><strong>{uploadProgress ? uploadProgress.name : 'Kéo tập phim vào đây'}</strong><p>{uploadProgress ? `${uploadProgress.percent.toFixed(0)}% · ${uploadProgress.mbps.toFixed(1)} Mbps đo được` : 'MP4, MKV, MOV, WEBM · chọn lại cùng tệp để tiếp tục upload'}</p></div>
                 <button disabled={busy} onClick={() => input.current?.click()}>Chọn video</button>
@@ -204,11 +211,11 @@ function App() {
                 {active.episodes.map(episode => <tr key={episode.id}><td><div className="episode-name"><span>{String(episode.ordinal).padStart(2, '0')}</span><div><strong>{episode.filename}</strong><small>{bytes(episode.total_bytes)}{episode.issues.filter(i => !i.resolved).map(i => <span className="issue" key={i.id}>{i.details.message ?? i.code}</span>)}</small></div></div></td><td>{duration(episode.duration_ms)}</td>
                   <td><span className={`badge ${episode.status.toLowerCase()}`}>{episode.queue_requested && episode.status === 'QUEUED' ? 'Trong hàng đợi' : labels[episode.status] ?? episode.status}</span>{episode.next_stage && <small className="next-stage">Tiếp theo: {episode.next_stage}</small>}</td>
                   <td><div className="progress-cell"><progress max="1" value={episode.status === 'UPLOADING' ? episode.uploaded_bytes / episode.total_bytes : episode.progress}/><small>{Math.round((episode.status === 'UPLOADING' ? episode.uploaded_bytes / episode.total_bytes : episode.progress) * 100)}%</small></div></td>
-                  <td><div className="row-actions">{((episode.status === 'QUEUED' && !episode.queue_requested) || episode.status === 'CHECKPOINTED') && <button disabled={busy || system?.worker_state !== 'ACCEPTING'} onClick={() => void action(() => post(`/episodes/${episode.id}/start`))}>{episode.status === 'CHECKPOINTED' ? 'Lồng tiếng' : 'Bắt đầu'}</button>}
+                  <td><div className="row-actions">{episode.status === 'NEEDS_REVIEW' && episode.issues.some(i => i.code === 'ROI_REQUIRED' && !i.resolved) && <button disabled={busy} onClick={() => setRoiReview(episode)}>Chọn vùng phụ đề</button>}{episode.status === 'NEEDS_REVIEW' && <button disabled={busy} onClick={() => setReview(episode)}>Sửa lời thoại</button>}{episode.artifacts.some(a => a.kind === 'final_video' || a.kind === 'preview_video') && <button onClick={() => { setSource(episode); setPlayPreview(true); }}>Xem bản Việt</button>}{((episode.status === 'QUEUED' && !episode.queue_requested) || episode.status === 'CHECKPOINTED') && <button disabled={busy || system?.worker_state !== 'ACCEPTING'} onClick={() => void action(() => post(`/episodes/${episode.id}/start`))}>{episode.status === 'CHECKPOINTED' ? 'Lồng tiếng' : 'Bắt đầu'}</button>}
                     {episode.status === 'FAILED' && <button disabled={busy} onClick={() => void action(() => post(`/episodes/${episode.id}/retry`))}>Thử lại</button>}
-                    {episode.status !== 'UPLOADING' && <button onClick={() => setSource(episode)}>Xem nguồn</button>}
+                    {episode.status !== 'UPLOADING' && <button onClick={() => { setSource(episode); setPlayPreview(false); }}>Xem nguồn</button>}
                     {episode.artifacts.map(artifact => <a className="button-link" key={artifact.id} href={`/api/download/${artifact.id}`} download>{artifact.kind === 'checkpoint' ? 'Checkpoint' : artifact.kind === 'final_video' ? 'Video Final' : artifact.kind === 'preview_audio' ? 'Audio Mix' : 'Tải xuống'}</a>)}
-                    <button className="text-button muted" aria-label={`Xóa tập ${episode.ordinal}`} disabled={busy || episode.status === 'PREPARING'} onClick={() => { if (confirm(`Xóa tập ${episode.ordinal} và tệp đã upload?`)) void action(() => api(`/episodes/${episode.id}`, { method: 'DELETE' })); }}>×</button></div></td></tr>)}
+                    <button className="text-button muted" aria-label={`Xóa tập ${episode.ordinal}`} disabled={busy || ['PREPARING', 'ASR', 'ALIGNING', 'TRANSLATING', 'SEPARATING', 'TTS', 'TIMING', 'AUDIO_MIX', 'QC', 'OCR_VERIFY', 'TEXT_REMOVAL', 'SUBTITLE_RENDER', 'ENCODING'].includes(episode.status)} onClick={() => { if (confirm(`Xóa tập ${episode.ordinal} và tệp đã upload?`)) void action(() => api(`/episodes/${episode.id}`, { method: 'DELETE' })); }}>×</button></div></td></tr>)}
               </tbody></table>{!active.episodes.length && <p className="table-empty">Chưa có tập phim. Tải lên video đầu tiên để bắt đầu.</p>}</div>
             </> : <div className="glossary"><p>Thuật ngữ lưu theo Series. Sửa thủ công sẽ khóa tên; tập cũ chỉ được dịch lại khi bạn yêu cầu.</p><form onSubmit={saveTerm}><div><label htmlFor="zh">Tên / thuật ngữ tiếng Trung</label><input id="zh" value={zh} onChange={e => setZh(e.target.value)} required maxLength={200}/></div><div><label htmlFor="vi">Cách dịch tiếng Việt</label><input id="vi" value={vi} onChange={e => setVi(e.target.value)} required maxLength={300}/></div><button className="primary" disabled={busy}>Lưu thuật ngữ</button></form>
               <table><thead><tr><th>TIẾNG TRUNG</th><th>TIẾNG VIỆT</th><th>NGUỒN</th><th/></tr></thead><tbody>{active.glossary.map(term => <tr key={term.zh}><td>{term.zh}</td><td>{term.vi}</td><td>{term.locked_by_user ? 'Đã khóa bởi bạn' : 'Đề xuất model'}</td><td><button onClick={() => { setZh(term.zh); setVi(term.vi); }}>Sửa</button></td></tr>)}</tbody></table>{!active.glossary.length && <p className="table-empty">Chưa có thuật ngữ.</p>}</div>}
@@ -217,7 +224,9 @@ function App() {
       </div>
     </main>
     {newSeries && <div className="modal-backdrop" onClick={() => setNewSeries(false)}><section className="modal" role="dialog" aria-modal="true" aria-labelledby="new-title" onClick={e => e.stopPropagation()}><button className="close" aria-label="Đóng" onClick={() => setNewSeries(false)}>×</button><p className="eyebrow">THƯ VIỆN</p><h2 id="new-title">Tạo Series</h2><form onSubmit={createSeries}><label htmlFor="series-title">Tên phim / Series</label><input id="series-title" value={title} onChange={e => setTitle(e.target.value)} required maxLength={160} autoFocus/><label htmlFor="series-priority">Ưu tiên</label><input id="series-priority" type="number" min="0" max="10000" value={priority} onChange={e => setPriority(Number(e.target.value))}/><p>Số nhỏ hơn được xử lý trước.</p><button className="primary" disabled={busy}>Tạo Series</button></form></section></div>}
-    {source && <div className="modal-backdrop" onClick={() => setSource(null)}><section className="modal video-modal" role="dialog" aria-modal="true" aria-labelledby="source-title" onClick={e => e.stopPropagation()}><button className="close" aria-label="Đóng video" onClick={() => setSource(null)}>×</button><h2 id="source-title">{source.filename}</h2><p>Video nguồn tiếng Trung. Preview audio Việt sẽ được bổ sung ở Phase A.</p><video src={`/api/episodes/${source.id}/source`} controls autoPlay playsInline/></section></div>}
+    {roiReview && <RoiReview episode={roiReview} onClose={() => setRoiReview(null)} onSaved={refresh}/> }
+    {review && <DialogueReview episode={review} onClose={() => setReview(null)} onSaved={refresh}/> }
+    {source && <div className="modal-backdrop" onClick={() => setSource(null)}><section className="modal video-modal" role="dialog" aria-modal="true" aria-labelledby="source-title" onClick={e => e.stopPropagation()}><button className="close" aria-label="Đóng video" onClick={() => setSource(null)}>×</button><h2 id="source-title">{source.filename}</h2><p>{playPreview ? 'Bản lồng tiếng Việt · cần nghe kiểm tra chất lượng.' : 'Video nguồn để đối chiếu.'}</p><video src={`/api/episodes/${source.id}/${playPreview ? 'preview' : 'source'}`} controls autoPlay playsInline/></section></div>}
   </div>;
 }
 

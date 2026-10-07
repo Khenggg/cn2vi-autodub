@@ -13,7 +13,15 @@ from pydantic import Field
 from starlette.concurrency import run_in_threadpool
 
 from autodub.config import Settings
-from autodub.contracts import EpisodeCreate, GlossaryEntry, Roi, SeriesCreate, SeriesPatch, StrictModel
+from autodub.contracts import (
+    EpisodeCreate,
+    GlossaryEntry,
+    Roi,
+    Segment,
+    SeriesCreate,
+    SeriesPatch,
+    StrictModel,
+)
 from autodub.scheduler import Scheduler
 from autodub.service import Conflict, Service
 from autodub.storage import Database, safe_path
@@ -192,6 +200,25 @@ def create_app(settings: Settings | None = None, *, start_worker: bool = True) -
             result = service.retry_episode(identifier, scheduler.state())
         scheduler.wake_event.set()
         return result
+
+    @app.get("/api/episodes/{identifier}/segments")
+    def episode_segments(identifier: str):
+        return service.episode_segments(identifier)
+
+    @app.put("/api/episodes/{identifier}/segments")
+    def update_segments(identifier: str, payload: list[Segment]):
+        return service.update_episode_segments(identifier, payload)
+
+    @app.get("/api/episodes/{identifier}/preview")
+    def preview(identifier: str):
+        service.require("episode", identifier)
+        artifact = db.one("SELECT path FROM artifact WHERE episode_id=? AND kind IN ('final_video','preview_video') ORDER BY created_at DESC LIMIT 1", (identifier,))
+        if artifact is None:
+            raise LookupError("Preview is not ready")
+        path = safe_path(settings.data_dir, artifact["path"])
+        if not path.is_file():
+            raise LookupError("Preview is unavailable")
+        return FileResponse(path)
 
     @app.put("/api/episodes/{identifier}/roi")
     def roi(identifier: str, payload: Roi):

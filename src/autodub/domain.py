@@ -40,14 +40,18 @@ def check_transition(old: str, new: str) -> None:
     allowed = {a: {b} for a, b in zip(PIPELINE, PIPELINE[1:], strict=False)}
     allowed[State.QUEUED].add(State.PREPARING)
     allowed[State.UPLOADING].add(State.QUEUED)
-    allowed[State.CHECKPOINTED] = {State.QUEUED, State.ASR}
+    # Recovery may resume at any durable stage represented by the checkpoint.
+    allowed[State.CHECKPOINTED] = {State.QUEUED, State.ASR, State.ALIGNING,
+                                   State.TRANSLATING, State.SEPARATING, State.TTS,
+                                   State.TIMING, State.AUDIO_MIX, State.QC, State.ENCODING}
     allowed[State.FAILED] = {State.RETRYING}
     allowed[State.NEEDS_REVIEW] = {State.RETRYING, State.COMPLETED}
     allowed[State.RETRYING] = {State.QUEUED}
     allowed[State.PAUSED] = {State.QUEUED}
-    # Fast-path shortcut: pipeline can jump from AUDIO_MIX directly to ENCODING,
-    # bypassing the optional QC / OCR / subtitle-render stages.
-    allowed[State.AUDIO_MIX].add(State.ENCODING)
+    allowed[State.QC].add(State.ENCODING)
+    allowed[State.QC].update({State.TEXT_REMOVAL, State.SUBTITLE_RENDER})
+    allowed[State.TEXT_REMOVAL].add(State.ENCODING)
+    allowed[State.TRANSLATING].add(State.AUDIO_MIX)
     if old not in {State.COMPLETED, State.SKIPPED, State.UPLOADING}:
         allowed.setdefault(old, set()).update({State.FAILED, State.CHECKPOINTED, State.PAUSED, State.NEEDS_REVIEW})
     if new not in allowed.get(old, set()):

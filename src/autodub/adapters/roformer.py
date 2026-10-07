@@ -2,12 +2,10 @@
 from __future__ import annotations
 
 import logging
-import os
 import shutil
-import subprocess
 from pathlib import Path
 
-from autodub.adapters.common import identity, milliseconds, output_folder
+from autodub.adapters.common import asset, identity, milliseconds, output_folder
 from autodub.benchmedia import extract_audio
 from autodub.media import probe_media
 from autodub.storage import atomic_json
@@ -30,7 +28,7 @@ def is_roformer_available() -> bool:
 
 
 def _run_with_audio_separator(source_wav: Path, folder: Path, model_name: str,
-                              device: str = "cuda") -> tuple[Path, Path]:
+                              device: str = "cuda", model_dir: Path | None = None) -> tuple[Path, Path]:
     """Separate dialogue and instrumental stems using audio-separator."""
     folder.mkdir(parents=True, exist_ok=True)
     vocals_path = folder / "vocals.wav"
@@ -39,13 +37,19 @@ def _run_with_audio_separator(source_wav: Path, folder: Path, model_name: str,
     # Try Python API first
     try:
         from audio_separator.separator import Separator
-        model_dir = os.getenv("MODELS_DIR", "/data/models/roformer")
-        Path(model_dir).mkdir(parents=True, exist_ok=True)
+        if model_dir is None:
+            raise ValueError("A verified model directory is required")
         separator = Separator(
             output_dir=str(folder),
             model_file_dir=model_dir,
             output_format="WAV",
         )
+        # All weights and parameter JSONs must be prepared by cloud_setup.
+        # Refuse hidden downloads while a paid video job is running.
+        def require_cached_file(_url, path):
+            if not Path(path).is_file():
+                raise RuntimeError("Missing pinned separator cache; rerun cloud_setup")
+        separator.download_file_if_not_exists = require_cached_file
         separator.load_model(model_filename=model_name)
         outputs = separator.separate(str(source_wav))
         # Match output files (typically named *(Vocals)* and *(Instrumental)*)
@@ -58,28 +62,8 @@ def _run_with_audio_separator(source_wav: Path, folder: Path, model_name: str,
         if vocals_path.exists() and instrumental_path.exists():
             return vocals_path, instrumental_path
     except Exception as exc:
-        logger.warning("Python audio_separator failed, trying CLI: %s", exc)
-
-    # Try CLI fallback
-    cli = shutil.which("audio-separator")
-    if cli:
-        cmd = [
-            cli, str(source_wav),
-            "--model_name", model_name,
-            "--output_dir", str(folder),
-            "--output_format", "WAV",
-        ]
-        res = subprocess.run(cmd, capture_output=True, text=True, check=False)
-        if res.returncode == 0:
-            for f in folder.glob("*.wav"):
-                if "vocal" in f.name.lower() and f != vocals_path:
-                    f.replace(vocals_path)
-                elif "inst" in f.name.lower() and f != instrumental_path:
-                    f.replace(instrumental_path)
-            if vocals_path.exists() and instrumental_path.exists():
-                return vocals_path, instrumental_path
-
-    raise RuntimeError(f"Could not separate stems using model {model_name}")
+        raise RuntimeError(f"Pinned audio separator failed ({type(exc).__name__})") from None
+    raise RuntimeError("Audio separator did not produce both required stems")
 
 
 def run(source: Path, config: dict) -> dict:
@@ -90,15 +74,18 @@ def run(source: Path, config: dict) -> dict:
         from autodub.adapters.bandit import run as run_bandit
         return run_bandit(source, config)
 
+    model_dir, manifest = asset(config, "roformer")
     folder = output_folder(config)
     duration_ms = probe_media(source, config.get("ffprobe_bin", "ffprobe"))["duration_ms"]
     model_name = config.get("roformer_model", DEFAULT_MODEL_NAME)
+    if model_name != DEFAULT_MODEL_NAME:
+        raise ValueError("Configured separator is not the pinned cloud model")
     tick = milliseconds()
     source_wav = folder / "source_44k.wav"
     extract_audio(source, source_wav, 0, duration_ms, sample_rate=44100, channels=2,
                   ffmpeg_bin=config.get("ffmpeg_bin", "ffmpeg"))
 
-    vocals_wav, inst_wav = _run_with_audio_separator(source_wav, folder, model_name)
+    vocals_wav, inst_wav = _run_with_audio_separator(source_wav, folder, model_name, model_dir=model_dir)
     inference_ms = milliseconds() - tick
 
     windows = [{
@@ -111,16 +98,11 @@ def run(source: Path, config: dict) -> dict:
     target = folder / "separation.json"
     atomic_json(target, {
         "schema_version": 1,
-        "model": f"Mel-RoFormer ({model_name})",
+        "model": f"MDX-Net ({model_name})",
         "windows": windows,
         "production_mix": True,
         "stereo_preservation_validated": True,
     })
-    manifest = {
-        "id": "mel-roformer",
-        "model_revision": model_name,
-        "weights_sha256": "roformer-weights",
-    }
     return {
         **identity([manifest]),
         "processed_media_ms": duration_ms,

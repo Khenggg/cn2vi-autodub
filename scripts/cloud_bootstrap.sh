@@ -8,7 +8,10 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="${PROJECT_ROOT:-$(cd -- "${SCRIPT_DIR}/.." && pwd)}"
 DATA_ROOT="${AUTODUB_DATA_ROOT:-/data}"
 VENV_ROOT="${AUTODUB_VENV_ROOT:-/opt/autodub/venvs}"
-PROFILES=(asr tts vision bandit)
+PLAN_PYTHON="$(command -v python3 || true)"
+[[ -n "$PLAN_PYTHON" ]] || { echo 'Install python3 and git before cloning/setup.' >&2; exit 1; }
+PROFILE_LIST="$("$PLAN_PYTHON" "$PROJECT_ROOT/scripts/cloud_plan.py" --field profiles)"
+mapfile -t PROFILES <<< "$PROFILE_LIST"
 PIP_VERSION="25.3"
 SETUPTOOLS_VERSION="80.9.0"
 WHEEL_VERSION="0.45.1"
@@ -41,14 +44,24 @@ RUN_USER="${SUDO_USER:-$(id -un)}"
 RUN_GROUP="$(id -gn "${RUN_USER}")"
 "${SUDO[@]}" apt-get update
 "${SUDO[@]}" apt-get install -y --no-install-recommends \
-  ffmpeg git fonts-dejavu-core fonts-liberation fonts-noto-core fonts-noto-cjk \
-  python3.12 python3.12-venv python3-pip tini
+  ca-certificates build-essential libsndfile1 ffmpeg git fonts-dejavu-core fonts-liberation fonts-noto-core fonts-noto-cjk \
+  python3 python3-venv python3-pip curl xz-utils tini
 
-if ! command -v python3.12 >/dev/null 2>&1; then
-  echo "cloud_bootstrap: python3.12 package installation did not provide python3.12." >&2
-  exit 1
+if [[ "${VERSION_ID}" == "24.04" ]]; then
+  "${SUDO[@]}" apt-get install -y --no-install-recommends python3.12 python3.12-venv
 fi
-python3.12 -c 'import sys; assert sys.version_info[:2] == (3, 12), sys.version'
+if command -v python3.12 >/dev/null 2>&1; then
+  PYTHON_BIN="$(command -v python3.12)"
+else
+  # Ubuntu 22.04 does not provide Python 3.12 in its standard apt repositories.
+  TOOL_ENV="${DATA_ROOT}/cache/bootstrap-tools"
+  "${SUDO[@]}" install -d -o "${RUN_USER}" -g "${RUN_GROUP}" "${DATA_ROOT}/cache"
+  python3 -m venv "${TOOL_ENV}"
+  "${TOOL_ENV}/bin/python" -m pip install "uv==0.9.6"
+  "${TOOL_ENV}/bin/uv" python install 3.12.12
+  PYTHON_BIN="$("${TOOL_ENV}/bin/uv" python find 3.12.12)"
+fi
+"${PYTHON_BIN}" -c 'import sys; assert sys.version_info[:2] == (3, 12), sys.version'
 
 # Own only the dedicated directories; preserve unrelated files below /data.
 "${SUDO[@]}" install -d -o "${RUN_USER}" -g "${RUN_GROUP}" \
@@ -70,8 +83,9 @@ create_or_update_env() {
   local requirements_file="${2:-}"
   local env_path="${VENV_ROOT}/${name}"
   if [[ ! -x "${env_path}/bin/python" ]]; then
-    python3.12 -m venv "${env_path}"
+    "${PYTHON_BIN}" -m venv "${env_path}"
   fi
+  local python="${env_path}/bin/python"
   local st_ver="${SETUPTOOLS_VERSION}"
   if [[ "${name}" == bandit ]]; then
     st_ver="69.5.1"
@@ -89,9 +103,10 @@ create_or_update_env() {
     fi
     if [[ "${name}" != vision ]]; then
       "${python}" -m pip install --index-url "${TORCH_INDEX}" \
-        "torch==2.8.0+cu128" "torchaudio==2.8.0+cu128"
+        "torch==2.8.0+cu128" "torchaudio==2.8.0+cu128" "torchvision==0.23.0+cu128"
     fi
     "${python}" -m pip install --require-hashes --requirement "${PROJECT_ROOT}/${requirements_file}"
+    "${python}" -m pip install --require-hashes --requirement "${PROJECT_ROOT}/requirements/worker-common.txt"
     local site_packages
     site_packages="$("${python}" -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])')"
     printf '%s\n' "${PROJECT_ROOT}/src" > "${site_packages}/autodub-project-src.pth"
@@ -106,9 +121,13 @@ create_or_update_env() {
 
 create_or_update_env core
 for profile in "${PROFILES[@]}"; do
-  create_or_update_env "${profile}" "requirements/bench-${profile}.txt"
+  case "$profile" in
+    asr|separation) requirement="requirements/runtime-${profile}.txt" ;;
+    *) requirement="requirements/bench-${profile}.txt" ;;
+  esac
+  create_or_update_env "${profile}" "$requirement"
 done
 
 echo "Cloud bootstrap complete. Model downloads are a separate, metered step."
-echo "Environments: ${VENV_ROOT}/{core,asr,tts,vision,bandit}"
+echo "Environments: ${VENV_ROOT}/core and ${PROFILES[*]}"
 echo "Models/cache/results: ${DATA_ROOT}/{models,cache,results}"

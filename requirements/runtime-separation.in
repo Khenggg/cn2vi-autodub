@@ -1,0 +1,9 @@
+-r bench-common.in
+fastapi==0.142.2
+uvicorn==0.54.0
+torch==2.8.0
+torchaudio==2.8.0
+torchvision==0.23.0
+audio-separator[gpu]==0.47.0
+numpy==2.2.6
+onnxruntime-gpu==1.22.0
