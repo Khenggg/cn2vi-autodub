@@ -13,6 +13,9 @@ from autodub.adapters.runtime_paths import asset
 
 
 def check(profile: str, models_root: Path) -> None:
+    # ASR and punctuation share a pinned checkout; imports must not mutate it.
+    sys.dont_write_bytecode = True
+    os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
     os.environ["AUTODUB_WORKER_MODELS"] = str(models_root.resolve())
     config = {"models_root": str(models_root)}
     configure_offline(config)
