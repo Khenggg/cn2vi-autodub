@@ -7,13 +7,13 @@ import subprocess
 import wave
 from pathlib import Path
 
-from autodub.adapters.common import output_folder
+from autodub.adapters.common import output_folder, worker_run_root
 from autodub.storage import atomic_json, safe_path
 
 RATE = 48000
 
 
-def _ffmpeg(arguments: list[str], config: dict) -> None:
+def _ffmpeg(arguments: list[str]) -> None:
     binary = shutil.which(os.environ.get("FFMPEG_BIN", "ffmpeg"))
     if not binary:
         raise RuntimeError("FFmpeg is unavailable")
@@ -39,10 +39,10 @@ def run(source: Path, config: dict) -> dict:
             continue
         start = min(w["s"] for w in words)
         slot = segment["end_ms"] - start
-        run_root = Path(config.get("run_root", folder.parent)).resolve()
+        run_root = worker_run_root() if config.get("production") else folder.parent
         raw_path = safe_path(run_root, raw)
         converted = safe_path(folder, f"clip-{index:06d}.wav")
-        _ffmpeg(["-i", str(raw_path), "-ac", "2", "-ar", str(RATE), "-c:a", "pcm_s16le", "-y", str(converted)], config)
+        _ffmpeg(["-i", str(raw_path), "-ac", "2", "-ar", str(RATE), "-c:a", "pcm_s16le", "-y", str(converted)])
         with wave.open(str(converted), "rb") as audio:
             frames = audio.getnframes()
         actual = frames * 1000 / RATE
@@ -54,7 +54,7 @@ def run(source: Path, config: dict) -> dict:
         if factor > 1:
             fitted = folder / f"fit-{index:06d}.wav"
             _ffmpeg(["-i", str(converted), "-af", f"atempo={factor:.9f}", "-c:a", "pcm_s16le",
-                     "-y", str(fitted)], config)
+                     "-y", str(fitted)])
             converted = fitted
         with wave.open(str(converted), "rb") as audio:
             values = np.frombuffer(audio.readframes(audio.getnframes()), dtype="<i2").reshape(-1, 2).astype("float32")
@@ -70,7 +70,7 @@ def run(source: Path, config: dict) -> dict:
             continue
         clips.append((left, right, values))
         masks.extend((round(w["s"] * RATE / 1000), round(w["e"] * RATE / 1000)) for w in words)
-    run_root = Path(config.get("run_root", folder.parent)).resolve()
+    run_root = worker_run_root() if config.get("production") else folder.parent
     readers = [wave.open(str(safe_path(run_root, stems[name])), "rb") for name in ("speech", "music", "effects")]
     output = folder / "mixed.wav"
     clipped = 0

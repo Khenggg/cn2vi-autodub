@@ -158,6 +158,9 @@ def main(argv: list[str] | None = None) -> int:
             return 2
         stage = request["stage"]
         source = Path(request["source"]).resolve(strict=True)
+        # JSON controls stage data, not filesystem authorities. The parent
+        # provisions private roots in the child environment.
+        request["config"]["production"] = True
         result = run_stage(stage, source, request["config"])
         if not isinstance(result, dict):
             return 3

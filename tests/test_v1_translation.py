@@ -37,3 +37,20 @@ def test_gated_asset_redirect_does_not_leak_hf_auth_to_cdn():
     assert redirected.get_header("Authorization") is None
     same_host = _PrivateRedirect().redirect_request(request, None, 302, "Found", {}, "https://huggingface.co/other")
     assert same_host.get_header("Authorization") == "Bearer private-test-token"
+
+
+def test_request_json_cannot_override_worker_filesystem_roots(tmp_path, monkeypatch):
+    from autodub.adapters import common
+    model_root = tmp_path / "models"
+    output = tmp_path / "allowed-output"
+    monkeypatch.setenv("AUTODUB_WORKER_MODELS", str(model_root))
+    monkeypatch.setenv("AUTODUB_WORKER_OUTPUT", str(output))
+    monkeypatch.setattr(common, "load_manifest", lambda path: {"id": path.name})
+    config = {"production": True, "models_root": str(tmp_path / "other"),
+              "output_dir": str(tmp_path / "forbidden")}
+    path, _ = common.asset(config, "model-a")
+    assert path == model_root / "model-a"
+    assert common.output_folder(config) == output
+    assert not (tmp_path / "forbidden").exists()
+    with pytest.raises(ValueError, match="Unsafe"):
+        common.asset(config, "../private")

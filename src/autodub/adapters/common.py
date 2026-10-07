@@ -13,7 +13,8 @@ def asset(config: dict, identifier: str) -> tuple[Path, dict]:
     from autodub.storage import safe_path
     if not isinstance(identifier, str) or not re.fullmatch(r"[a-z0-9][a-z0-9_-]*", identifier):
         raise ValueError("Unsafe model asset identifier")
-    root = Path(config.get("models_root", "/data/models")).resolve()
+    root = Path(os.environ["AUTODUB_WORKER_MODELS"] if config.get("production")
+                else config.get("models_root", "/data/models")).resolve()
     path = safe_path(root, identifier)
     manifest = load_manifest(path)
     if config.get("model_lock_path"):
@@ -28,11 +29,15 @@ def asset(config: dict, identifier: str) -> tuple[Path, dict]:
 
 
 def output_folder(config: dict) -> Path:
-    folder = Path(config["output_dir"]).resolve()
-    if config.get("run_root") and not folder.is_relative_to(Path(config["run_root"]).resolve()):
-        raise ValueError("Model output escapes the run directory")
+    folder = Path(os.environ["AUTODUB_WORKER_OUTPUT"] if config.get("production")
+                  else config["output_dir"]).resolve()
     folder.mkdir(parents=True, exist_ok=True)
     return folder
+
+
+def worker_run_root() -> Path:
+    """Filesystem authority from the launching process, never from request JSON."""
+    return Path(os.environ["AUTODUB_WORKER_RUN_ROOT"]).resolve()
 
 
 def identity(manifests: list[dict]) -> dict:

@@ -28,6 +28,17 @@ fi
 mkdir -p "${DATA_DIR}/run" "${DATA_DIR}/logs"
 
 start_server() {
+    if [[ "${ENABLE_PIPELINE}" == true && "${PIPELINE_GENERATION:-v1}" == v1 ]]; then
+        export VOICE_REFERENCE="${VOICE_REFERENCE:-${DATA_DIR}/voices/ngoc-huyen.wav}"
+        if [[ ! -r "$VOICE_REFERENCE" ]]; then
+            echo "[ERROR] Fixed Ngọc Huyền reference is missing: $VOICE_REFERENCE" >&2
+            return 1
+        fi
+        if [[ -z "${DEEPSEEK_API_KEY:-}" ]]; then
+            echo "[ERROR] Create ${DATA_DIR}/run/translation.env with DEEPSEEK_API_KEY before enabling V1 processing." >&2
+            return 1
+        fi
+    fi
     if [ -f "${PID_FILE}" ]; then
         PID=$(cat "${PID_FILE}")
         if kill -0 "${PID}" 2>/dev/null; then

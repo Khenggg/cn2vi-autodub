@@ -101,6 +101,9 @@ class ModelRunner:
                                                   if os.environ.get("PYTHONPATH") else "")
             env["PYTHONIOENCODING"] = "utf-8"
             env["PYTHONUTF8"] = "1"
+            env["AUTODUB_WORKER_OUTPUT"] = str(output_root)
+            env["AUTODUB_WORKER_RUN_ROOT"] = str(Path(job_config.get("run_root", output_root)).resolve())
+            env["AUTODUB_WORKER_MODELS"] = str(Path(self.config.get("models_root", "/data/models")).resolve())
             command = [str(interpreter), "-m", "autodub.model_worker", "--request", str(request_path),
                        "--result", str(result_path)]
             creationflags = subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0

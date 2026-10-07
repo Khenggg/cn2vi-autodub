@@ -7,7 +7,14 @@ import sys
 import time
 from pathlib import Path
 
-from autodub.adapters.common import asset, configure_offline, identity, local_hub_files, output_folder
+from autodub.adapters.common import (
+    asset,
+    configure_offline,
+    identity,
+    local_hub_files,
+    output_folder,
+    worker_run_root,
+)
 from autodub.benchmedia import extract_audio
 from autodub.config import DEFAULT_VOICE_ID
 from autodub.storage import atomic_json, safe_path, sha256_file
@@ -29,7 +36,7 @@ def stage_code(source: Path, target: Path, replacements: dict[str, dict[str, str
 def run(source: Path, config: dict) -> dict:
     from omegaconf import OmegaConf
 
-    reference = safe_path(Path(config["run_root"]).resolve(), config["voice_reference"])
+    reference = safe_path(worker_run_root(), "frozen-inputs/ngoc-huyen.wav")
     if not reference.is_file():
         raise ValueError("Fixed reference is unavailable in the frozen run")
     reference_hash = sha256_file(reference)
@@ -70,16 +77,16 @@ def run(source: Path, config: dict) -> dict:
         raise RuntimeError("Pinned speaker guidance failed to load")
     load_ms = (time.perf_counter() - tick) * 1000
     clips, failures, inference_ms, preprocess_ms = {}, [], 0.0, 0.0
-    for segment in config["segments"]:
+    for index, segment in enumerate(config["segments"]):
         if segment["action"] != "DUB" or not segment.get("dub_vi", "").strip():
             continue
         sid = segment["id"]
         tick = time.perf_counter()
-        emo = folder / f"emotion-{len(clips):06d}.wav"
+        emo = folder / f"emotion-{index:06d}.wav"
         extract_audio(source, emo, segment["start_ms"], segment["end_ms"], sample_rate=24000,
                       channels=1, ffmpeg_bin=config.get("ffmpeg_bin", "ffmpeg"))
         preprocess_ms += (time.perf_counter() - tick) * 1000
-        output = folder / f"voice-{len(clips):06d}.wav"
+        output = folder / f"voice-{index:06d}.wav"
         tick = time.perf_counter()
         try:
             model.infer(spk_audio_prompt=str(reference), text=segment["dub_vi"], output_path=str(output),
