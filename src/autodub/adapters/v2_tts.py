@@ -6,7 +6,7 @@ import time
 from pathlib import Path
 
 from autodub.adapters.common import configure_offline, identity, local_hub_files
-from autodub.adapters.runtime_paths import asset, output_folder
+from autodub.adapters.runtime_paths import asset, output_folder, run_file
 from autodub.config import DEFAULT_VOICE_ID
 from autodub.storage import atomic_json, sha256_file
 
@@ -25,7 +25,7 @@ def run(source: Path, config: dict) -> dict:
     load_ms = inference_ms = conditioning_ms = 0.0
     manifests = []
     if eligible:
-        reference = Path(config["voice_reference"]).resolve(strict=True)
+        reference = run_file(config["voice_reference"])
         if sha256_file(reference) != config["voice_reference_sha256"]:
             raise ValueError("Fixed voice reference changed")
         backbone, model_meta = asset(config, "vieneu-turbo")

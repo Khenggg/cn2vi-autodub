@@ -7,7 +7,7 @@ import time
 import wave
 from pathlib import Path
 
-from autodub.adapters.runtime_paths import output_folder, worker_run_root
+from autodub.adapters.runtime_paths import output_folder, run_file
 from autodub.storage import atomic_json, sha256_file
 
 RATE = 48000
@@ -69,9 +69,7 @@ def run(source: Path, config: dict) -> dict:
             sid = segment["id"]
             if segment["action"] != "DUB" or sid not in config["clips"]:
                 continue
-            path = Path(config["clips"][sid]).resolve(strict=True)
-            if not path.is_relative_to(worker_run_root()):
-                raise ValueError("TTS clip escaped frozen run")
+            path = run_file(config["clips"][sid])
             clip, rate = sf.read(path, dtype="float32")
             if rate != RATE or clip.ndim != 1 or not len(clip) or not np.isfinite(clip).all():
                 raise ValueError("TTS clip is not mono 48kHz finite audio")
@@ -87,9 +85,7 @@ def run(source: Path, config: dict) -> dict:
                 continue
             if factor > 1:
                 fitted = folder / f"fitted-{len(added):06d}.wav"
-                subprocess.run([config.get("ffmpeg_bin", "ffmpeg"), "-hide_banner", "-loglevel", "error",
-                                "-i", str(path), "-af", f"atempo={factor:.9f}", "-ar", str(RATE),
-                                "-y", str(fitted)], check=True, capture_output=True, timeout=60)
+                _fit_clip(path, fitted, factor)
                 clip, _ = sf.read(fitted, dtype="float32")
                 # atempo can have a small sample-count difference; never chop a syllable.
                 if len(clip) > right - left + RATE // 100:
@@ -134,3 +130,12 @@ def run(source: Path, config: dict) -> dict:
             "artifacts": [str(target), str(output), str(voice_path), str(control_path), str(graph_path)],
             "stage_status": "DEGRADED" if issues else "SUCCESS", "quality_evidence": {"issues": issues},
             "metrics": {"combined_processing_ms": (time.perf_counter() - tick) * 1000}}
+
+
+def _fit_clip(source: Path, target: Path, speed: float) -> None:
+    """The filter accepts a bounded number; job JSON cannot choose an executable."""
+    if not isinstance(speed, (float, int)) or not math.isfinite(speed) or not 1 < speed <= 1.25:
+        raise ValueError("Invalid voice fitting speed")
+    subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-i", str(source),
+                    "-af", f"atempo={float(speed):.9f}", "-ar", str(RATE), "-y", str(target)],
+                   shell=False, check=True, capture_output=True, timeout=60)

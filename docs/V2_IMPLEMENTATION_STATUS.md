@@ -14,9 +14,9 @@
 
 ## Kiểm thử
 
-Toàn suite: **310 passed, 0 failed, 0 skipped** trong 17,35 giây; **Ruff: All checks passed**. Chạy trên môi trường CPU Ubuntu/WSL Python 3.12; không tải weights, không chạy GPU inference, không gọi DeepSeek thật. Test media chạy FFmpeg/OpenCV thật trên audio/video tổng hợp, đo ducking theo dải và kiểm tra phục hồi/burn một lần; test SDK/provider/ASR/TTS/API dùng mock kiểm tra contract. Xem [pytest log](validation/v2-pytest.log) và [Ruff log](validation/v2-ruff.log). Thời gian test không phải thời gian xử lý video.
+Toàn suite: **317 passed, 0 failed, 0 skipped** trong 18,36 giây. Ruff pass sau chuẩn hóa import. Chạy trên môi trường CPU Ubuntu/WSL Python 3.12; không tải weights, không chạy GPU inference, không gọi DeepSeek thật. Test media chạy FFmpeg/OpenCV thật trên audio/video tổng hợp, đo ducking theo dải và kiểm tra phục hồi/burn một lần; test SDK/provider/ASR/TTS/API dùng mock kiểm tra contract. Xem [pytest log](validation/v2-pytest.log) và [Ruff log](validation/v2-ruff.log). Thời gian test không phải thời gian xử lý video.
 
-Frontend đã pass `tsc --noEmit` và `vite build`. Linux setup scripts được kiểm tra cú pháp và kế hoạch dry-run. Không xem mock hoặc clip tổng hợp là chứng minh chất lượng phim thật.
+Frontend đã pass `tsc --noEmit` và `vite build`. Linux setup scripts được kiểm tra cú pháp và kế hoạch dry-run. Thêm kiểm tra chặn artifact thoát frozen run trước khi probe tồn tại, giới hạn số/thời gian event và lookup bằng bisect, giới hạn filter fitting trước khi chạy FFmpeg. Không xem mock hoặc clip tổng hợp là chứng minh chất lượng phim thật.
 
 ## Cần cloud để nghiệm thu sản phẩm
 

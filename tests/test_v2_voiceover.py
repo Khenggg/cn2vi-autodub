@@ -213,6 +213,7 @@ def test_batched_tts_loads_and_enrolls_fixed_voice_once(tmp_path, monkeypatch):
     from contextlib import nullcontext
     monkeypatch.setattr(v2_tts, "local_hub_files", lambda config: nullcontext())
     monkeypatch.setenv("AUTODUB_WORKER_OUTPUT", str(output))
+    monkeypatch.setenv("AUTODUB_WORKER_RUN_ROOT", str(tmp_path))
     result = v2_tts.run(reference, {"voice_reference": str(reference), "voice_reference_sha256": sha256_file(reference),
                                   "tts_batch_size": 2, "segments": [segment(id=f"s{i}", action="DUB", dub_vi="Chào") for i in range(5)]})
     assert len(result["clips"]) == 5

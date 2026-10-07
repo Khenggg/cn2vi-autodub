@@ -5,12 +5,13 @@ import json
 import subprocess
 import threading
 import time
+from bisect import bisect_right
 from fractions import Fraction
 from pathlib import Path
 
 from autodub.adapters.common import identity
 from autodub.adapters.ocr import build_engine
-from autodub.adapters.runtime_paths import asset, output_folder, worker_run_root
+from autodub.adapters.runtime_paths import asset, output_folder, run_file
 from autodub.storage import atomic_json, sha256_file
 
 
@@ -212,7 +213,7 @@ def recover_crop(image, donor, mask):
 
 def restoration_plan(source: Path, config: dict) -> dict:
     folder = output_folder(config)
-    ocr = json.loads(Path(config["ocr_path"]).read_text(encoding="utf-8"))
+    ocr = json.loads(run_file(config["ocr_path"]).read_text(encoding="utf-8"))
     if ocr["source_sha256"] != sha256_file(source):
         raise ValueError("OCR source changed")
     selected = [event for event in ocr["events"] if event["kind"] == "DIALOGUE"]
@@ -228,12 +229,8 @@ def restoration_plan(source: Path, config: dict) -> dict:
 def encode(source: Path, config: dict) -> dict:
 
     folder = output_folder(config)
-    audio = Path(config["audio_path"]).resolve(strict=True)
-    subtitles = Path(config["subtitles_path"]).resolve(strict=True)
-    if not audio.is_relative_to(worker_run_root()) and audio != source.resolve():
-        raise ValueError("Mastered audio escaped run")
-    if not subtitles.is_relative_to(worker_run_root()):
-        raise ValueError("Subtitle escaped run")
+    audio = source.resolve() if Path(config["audio_path"]) == source else run_file(config["audio_path"])
+    subtitles = run_file(config["subtitles_path"])
     output = folder / "final.mp4"
     encoder = config.get("video_encoder", "h264_nvenc")
     if config.get("production", False) and encoder != "h264_nvenc":
@@ -244,7 +241,7 @@ def encode(source: Path, config: dict) -> dict:
     graph = "subtitles=subtitles.srt" if subtitles.stat().st_size > 1 else "null"
     local_subtitles = folder / "subtitles.srt"
     local_subtitles.write_bytes(subtitles.read_bytes())
-    plan = json.loads(Path(config["restoration_plan"]).read_text()) if config.get("restoration_plan") else None
+    plan = json.loads(run_file(config["restoration_plan"]).read_text()) if config.get("restoration_plan") else None
     issues, repaired, untouched = [], 0, 0
     tick = time.perf_counter()
     if not plan or not plan["events"] or config.get("subtitle_mode") != "replace":
@@ -289,50 +286,13 @@ def _encode_restored(source, audio, folder, output, graph, options, plan, config
                "-framerate", str(fps), "-i", "pipe:0", "-i", str(audio), "-map", "0:v:0", "-map", "1:a:0",
                "-vf", graph, *options, "-y", str(output)]
     capture = cv2.VideoCapture(str(source))
-    top, bottom, scaled_width, scaled_height = plan["crop"]
-    donors, index, cursor = {}, 0, 0
-    error_events = set()
     with (folder / "encoder.log").open("wb") as log:
         process = subprocess.Popen(command, cwd=folder, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=log)
         watchdog = threading.Timer(int(config.get("media_timeout_seconds", 7200)), process.kill)
         watchdog.daemon = True
         watchdog.start()
         try:
-            while True:
-                ok, image = capture.read()
-                if not ok:
-                    break
-                at = round(index * 1000 / float(fps))
-                index += 1
-                while cursor < len(plan["events"]) and at >= plan["events"][cursor]["end_ms"]:
-                    donors.clear()
-                    cursor += 1
-                event = plan["events"][cursor] if cursor < len(plan["events"]) else None
-                if event and event["start_ms"] <= at < event["end_ms"]:
-                    crop = cv2.resize(image[top:bottom], (scaled_width, scaled_height))
-                    mask = glyph_mask(crop, event["boxes"])
-                    restored = False
-                    for raw_path in event["donors"]:
-                        path = Path(raw_path).resolve(strict=True)
-                        if not path.is_relative_to(worker_run_root()):
-                            raise ValueError("Donor escaped frozen run")
-                        if raw_path not in donors:
-                            donors[raw_path] = cv2.imread(str(path))
-                        donor = donors[raw_path]
-                        if donor is not None:
-                            recovered, restored = recover_crop(crop, donor, mask)
-                            if restored:
-                                full = cv2.resize(recovered, (width, bottom - top))
-                                full_mask = cv2.resize(mask, (width, bottom - top), interpolation=cv2.INTER_NEAREST)
-                                image[top:bottom][full_mask > 0] = full[full_mask > 0]
-                                break
-                    field = "restored_frames" if restored else "unrestored_frames"
-                    event[field] = event.get(field, 0) + 1
-                    if not restored and event["id"] not in error_events:
-                        issues.append({"event_id": event["id"], "code": "BACKGROUND_RECOVERY_UNCERTAIN",
-                                       "action": "KEEP_ORIGINAL_PIXELS"})
-                        error_events.add(event["id"])
-                process.stdin.write(image.tobytes())
+            index = _write_restored_frames(capture, process.stdin, plan, fps, config["duration_ms"], issues)
             process.stdin.close()
             if process.wait(timeout=60) != 0:
                 raise RuntimeError("Final NVENC renderer failed")
@@ -344,3 +304,70 @@ def _encode_restored(source, audio, folder, output, graph, options, plan, config
             if process.poll() is None:
                 process.kill()
                 process.wait(timeout=10)
+
+
+class EventTimeline:
+    """Bounded, ordered events; frame lookup does not loop on a JSON time value."""
+
+    def __init__(self, events: list[dict], duration_ms: int):
+        if not 0 < duration_ms <= 86400000 or len(events) > 100000:
+            raise ValueError("Restoration timeline exceeds supported bounds")
+        previous = 0
+        for event in events:
+            start, end = event["start_ms"], event["end_ms"]
+            if not isinstance(start, int) or not isinstance(end, int) or not previous <= start < end <= duration_ms:
+                raise ValueError("Restoration events must be ordered and within the source")
+            if len(event["donors"]) > 2:
+                raise ValueError("A subtitle event may have at most two clean donors")
+            previous = end
+        self.events = events
+        self.ends = tuple(event["end_ms"] for event in events)
+
+    def at(self, at_ms: int) -> dict | None:
+        index = bisect_right(self.ends, at_ms)
+        if index == len(self.events) or at_ms < self.events[index]["start_ms"]:
+            return None
+        return self.events[index]
+
+
+def _write_restored_frames(capture, stream, plan, fps, duration_ms, issues):
+    timeline = EventTimeline(plan["events"], duration_ms)
+    donors, seen_errors, index, previous = {}, set(), 0, None
+    while True:
+        ok, image = capture.read()
+        if not ok:
+            return index
+        event = timeline.at(round(index * 1000 / float(fps)))
+        index += 1
+        if event is not previous:
+            donors.clear()
+            previous = event
+        if event is not None:
+            restored = _restore_event(image, event, plan, donors)
+            field = "restored_frames" if restored else "unrestored_frames"
+            event[field] = event.get(field, 0) + 1
+            if not restored and event["id"] not in seen_errors:
+                issues.append({"event_id": event["id"], "code": "BACKGROUND_RECOVERY_UNCERTAIN",
+                               "action": "KEEP_ORIGINAL_PIXELS"})
+                seen_errors.add(event["id"])
+        stream.write(image.tobytes())
+
+
+def _restore_event(image, event, plan, donors):
+    import cv2
+    top, bottom, scaled_width, scaled_height = plan["crop"]
+    crop = cv2.resize(image[top:bottom], (scaled_width, scaled_height))
+    mask = glyph_mask(crop, event["boxes"])
+    for raw_path in event["donors"]:
+        if raw_path not in donors:
+            donors[raw_path] = cv2.imread(str(run_file(raw_path)))
+        donor = donors[raw_path]
+        if donor is None:
+            continue
+        recovered, restored = recover_crop(crop, donor, mask)
+        if restored:
+            full = cv2.resize(recovered, (plan["width"], bottom - top))
+            full_mask = cv2.resize(mask, (plan["width"], bottom - top), interpolation=cv2.INTER_NEAREST)
+            image[top:bottom][full_mask > 0] = full[full_mask > 0]
+            return True
+    return False

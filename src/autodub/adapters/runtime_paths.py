@@ -17,6 +17,21 @@ def worker_run_root() -> Path:
     return Path(os.environ["AUTODUB_WORKER_RUN_ROOT"]).resolve()
 
 
+def run_file(value: str | Path) -> Path:
+    """Check launcher-owned containment before probing an artifact's existence."""
+    root = worker_run_root()
+    candidate = Path(value)
+    if candidate.is_absolute():
+        try:
+            candidate = candidate.relative_to(root)
+        except ValueError:
+            raise ValueError("Artifact is outside the frozen run") from None
+    path = safe_path(root, candidate.as_posix())
+    if not path.is_file():
+        raise ValueError("Run artifact is unavailable")
+    return path
+
+
 def output_folder(config: dict) -> Path:
     del config
     folder = Path(os.environ["AUTODUB_WORKER_OUTPUT"]).resolve()
