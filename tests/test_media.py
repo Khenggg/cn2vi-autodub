@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from autodub.media import MediaError, probe_media
+from autodub.media import MediaError, probe_audio, probe_media
 
 
 def test_real_media_probe_and_preparation(tmp_path, monkeypatch):
@@ -53,3 +53,15 @@ def test_audio_only_input_rejected(tmp_path, monkeypatch):
     monkeypatch.setattr("autodub.media.subprocess.run", lambda *_args, **_kwargs: SimpleNamespace(returncode=0, stdout=json.dumps(payload)))
     with pytest.raises(MediaError, match="video and audio"):
         probe_media(Path("fixture.mp4"))
+    assert probe_audio(Path("vocals.wav"))["duration_ms"] == 1000
+
+
+@pytest.mark.parametrize("duration", ["0", "-1", "NaN", "Infinity"])
+def test_recognition_audio_rejects_invalid_duration(monkeypatch, duration):
+    import json
+    from types import SimpleNamespace
+    payload = {"format": {"duration": duration}, "streams": [{"codec_type": "audio"}]}
+    monkeypatch.setattr("autodub.media.subprocess.run", lambda *_a, **_k:
+                        SimpleNamespace(returncode=0, stdout=json.dumps(payload)))
+    with pytest.raises(MediaError, match="valid audio"):
+        probe_audio(Path("vocals.wav"))

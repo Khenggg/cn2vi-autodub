@@ -55,7 +55,7 @@ class Scheduler:
                                              "subtitle_mode": pipeline._subtitle_mode_for_episode(row)})
                     checkpoint = read_checkpoint(self.settings.data_dir, row["id"],
                                                  row["source_sha256"], config_fp)
-                    next_stage = checkpoint.get("next_stage") or "ASR"
+                    next_stage = checkpoint.get("next_stage") or "SEPARATING"
                 except (CheckpointError, OSError, ValueError):
                     from autodub.pipeline import Pipeline
                     Pipeline(self.db, self.settings)._fail(
@@ -154,16 +154,16 @@ class Scheduler:
         if not existing_checkpoint:
             atomic_json(checkpoint, {"schema_version": 1, "episode_id": episode["id"],
                                     "source_sha256": episode["source_sha256"], "completed_stages": ["PREPARING"],
-                                    "next_stage": "ASR", "media": metadata, "created_at": now_ms()})
+                                    "next_stage": "SEPARATING", "media": metadata, "created_at": now_ms()})
         with self.db.lock:
             self.db.execute("DELETE FROM artifact WHERE episode_id=? AND kind='checkpoint'", (episode["id"],))
             self.db.execute("INSERT INTO artifact VALUES(?,?,?,?,?,?,?)",
                             (uuid.uuid4().hex, episode["id"], "checkpoint",
                              checkpoint.relative_to(self.settings.data_dir).as_posix(), sha256_file(checkpoint),
                              checkpoint.stat().st_size, now_ms()))
-            self.db.transition(episode["id"], "CHECKPOINTED", "Media ready; ASR benchmark/provider required",
+            self.db.transition(episode["id"], "CHECKPOINTED", "Media ready; separation and ASR providers required",
                                duration_ms=metadata["duration_ms"], progress=0.05,
-                               next_stage=existing.get("next_stage", "ASR") if existing_checkpoint else "ASR",
+                               next_stage=existing.get("next_stage", "SEPARATING") if existing_checkpoint else "SEPARATING",
                                queue_requested=1 if self.settings.enable_pipeline else 0)
             self.db.event(episode["id"], "CHECKPOINTED", "Preparation checkpoint saved",
                           {"stage_wall_ms": now_ms() - started, "provider_ready": False})

@@ -14,7 +14,7 @@ ALIGN_MANIFEST = {"id": "alignment-en", "model_revision": "align-rev", "weights_
 
 
 def test_asr_uses_local_pinned_large_turbo_and_keeps_detected_language(tmp_path, monkeypatch):
-    source = tmp_path / "episode.mp4"
+    source = tmp_path / "vocals.wav"
     source.write_bytes(b"source")
     output = tmp_path / "asr"
     output.mkdir()
@@ -33,9 +33,11 @@ def test_asr_uses_local_pinned_large_turbo_and_keeps_detected_language(tmp_path,
     monkeypatch.setitem(sys.modules, "faster_whisper", SimpleNamespace(WhisperModel=FakeModel))
     monkeypatch.setattr(whisper, "configure_offline", lambda _config: None)
     monkeypatch.setattr(whisper, "asset", lambda _config, _asset_id: (tmp_path / "whisper-asr", ASR_MANIFEST))
-    monkeypatch.setattr(whisper.media, "probe_media", lambda *_args: {"duration_ms": 5000})
+    monkeypatch.setattr(whisper.media, "probe_audio", lambda *_args: {"duration_ms": 5000})
 
-    result = whisper.run_asr(source, {"output_dir": str(output)})
+    result = whisper.run_asr(source, {"output_dir": str(output),
+                                     "original_source_sha256": "original-video-hash",
+                                     "audio_input_kind": "separated_vocals"})
     transcript = json.loads((output / "transcript.zh.json").read_text(encoding="utf-8"))
 
     assert captured["path"] == str(tmp_path / "whisper-asr")
@@ -44,6 +46,9 @@ def test_asr_uses_local_pinned_large_turbo_and_keeps_detected_language(tmp_path,
     assert captured["transcribe"]["language"] is None
     assert transcript["language"] == "en"
     assert transcript["source_sha256"] == sha256_file(source)
+    assert transcript["original_source_sha256"] == "original-video-hash"
+    assert transcript["audio_input_kind"] == "separated_vocals"
+    assert transcript["audio_timeline_offset_ms"] == 0
     assert transcript["segments"][0]["start_ms"] == 1250
     assert transcript["segments"][0]["words"] == []
     assert transcript["segments"][0]["needs_review"] is True

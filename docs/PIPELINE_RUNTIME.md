@@ -7,14 +7,14 @@ This document describes the runtime changes developed from `01d9e7c`. Validation
 ```mermaid
 flowchart TD
   UP[Resumable source upload] --> PREP[Probe media and verify source SHA-256]
-  PREP --> ASR[ASR]
+  PREP --> SEP[Kim_Vocal_2: full-length vocals and instrumental]
+  SEP --> ASR[ASR on vocals]
   ASR --> ALIGN[Word alignment and utterance grouping]
   ALIGN --> TRANS[Translate Vietnamese captions and dialogue]
   TRANS --> GATE{Resolved source words and dialogue?}
   GATE -->|No| REVIEW[Human dialogue review]
   REVIEW --> GATE
-  GATE -->|Yes| SEP[Separate planned dialogue windows]
-  SEP --> TTS[Generate Vietnamese voice clips]
+  GATE -->|Yes| TTS[Generate Vietnamese voice clips]
   TTS --> FIT{Strict duration fitting within 20%}
   FIT -->|Rewrite required| REVIEW
   FIT -->|Fits| MIX[Remove source dialogue at aligned words and mix full Vietnamese utterances]
@@ -31,7 +31,9 @@ flowchart TD
   MUX --> DONE[Final artifact]
 ```
 
-No dubbed segments means original audio passthrough: separation and TTS are skipped. Technical completion does not prove transcription accuracy, natural speech, correct speaker identity, or subtitle removal quality.
+Kim_Vocal_2 runs once before ASR. ASR and forced alignment both consume the full-length, zero-offset vocal stem; the mixer reuses the same separation artifact and preserves the original video timeline. Recognition artifacts record the vocal hash as `source_sha256` and the uploaded video hash separately as `original_source_sha256`. Missing, cropped or duration-mismatched vocals stop processing instead of falling back to mixed audio. Separation policy revision 2 invalidates old separation and every dependent checkpoint, including transcripts made from the original mixture.
+
+No dubbed segments means original audio passthrough: TTS is skipped, while separation has already supplied recognition audio. Vocal separation does not guarantee dialogue-only audio or correct ASR. Technical completion does not prove transcription accuracy, natural speech, correct speaker identity, or subtitle removal quality.
 
 ## Review and output controls
 

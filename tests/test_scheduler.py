@@ -6,12 +6,12 @@ from autodub.media import MediaError
 MEDIA = {"schema_version": 1, "duration_ms": 5000, "video": {"width": 1280, "height": 720}, "audio": {"sample_rate": "48000"}}
 
 
-def test_preparation_checkpoint_stops_before_asr(client, app, uploaded, monkeypatch):
+def test_preparation_checkpoint_stops_before_separation(client, app, uploaded, monkeypatch):
     monkeypatch.setattr("autodub.scheduler.probe_media", lambda *_: MEDIA)
     client.post(f"/api/episodes/{uploaded['id']}/start")
     assert app.state.scheduler.tick()
     episode = client.get(f"/api/episodes/{uploaded['id']}").json()
-    assert episode["status"] == "CHECKPOINTED" and episode["next_stage"] == "ASR"
+    assert episode["status"] == "CHECKPOINTED" and episode["next_stage"] == "SEPARATING"
     assert episode["duration_ms"] == 5000 and episode["progress"] < 1
     artifact = episode["artifacts"][0]
     checkpoint = client.get(f"/api/download/{artifact['id']}").json()

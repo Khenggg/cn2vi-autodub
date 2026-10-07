@@ -8,6 +8,9 @@ from typing import Any
 
 from autodub.storage import atomic_json, safe_path, sha256_file
 
+STAGE_ORDER = ("PREPARING", "SEPARATING", "ASR", "ALIGNING", "TRANSLATING", "TTS",
+               "TIMING", "AUDIO_MIX", "QC", "VISION_RENDER", "ENCODING")
+
 
 class CheckpointError(ValueError):
     """A checkpoint or one of its recorded artifacts is invalid."""
@@ -32,7 +35,7 @@ def read_checkpoint(data_dir: Path, episode_id: str, source_sha256: str,
     if not path.is_file():
         return {"schema_version": 1, "episode_id": episode_id,
                 "source_sha256": source_sha256, "completed_stages": [],
-                "next_stage": "ASR", "artifacts": {}, "results": {}}
+                "next_stage": "SEPARATING", "artifacts": {}, "results": {}}
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as error:
@@ -98,8 +101,7 @@ def invalidate_from_stage(data_dir: Path, episode_id: str, source_sha256: str,
         raise CheckpointError("Checkpoint source identity changed")
     if value.get("schema_version") != 2 or value.get("config_fingerprint") != config_fingerprint:
         raise CheckpointError("Checkpoint configuration is invalid")
-    order = ["PREPARING", "ASR", "ALIGNING", "TRANSLATING", "SEPARATING", "TTS",
-             "TIMING", "AUDIO_MIX", "QC", "VISION_RENDER", "ENCODING"]
+    order = STAGE_ORDER
     if stage not in order:
         raise CheckpointError("Checkpoint artifact stage is unknown")
     invalid = set(order[order.index(stage):])
