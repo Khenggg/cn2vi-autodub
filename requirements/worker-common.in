@@ -1,3 +1,4 @@
 -r bench-common.in
 fastapi==0.142.2
 uvicorn==0.54.0
+starlette==0.52.1
