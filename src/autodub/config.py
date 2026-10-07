@@ -2,7 +2,6 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
-
 # User-selected default. Change only after an explicit user request.
 DEFAULT_VOICE_ID = "Ngọc Huyền"
 
