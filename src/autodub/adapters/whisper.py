@@ -271,6 +271,8 @@ def run_alignment(source: Path, config: dict) -> dict:
         "alignment_status": "ALIGNED" if timing_available else "PARTIAL_REVIEW_REQUIRED",
         "segments": output, "word_timing_available": timing_available,
         "alignment_policy_revision": ALIGNMENT_POLICY_REVISION,
+        "speech_slot_policy": "ASR_OUTER_BOUNDS",
+        "ctc_score_policy": {"minimum_raw_match_score": MIN_ALIGNMENT_SCORE, "calibrated": False},
         "alignment_diagnostics": diagnostics,
     })
     return {
