@@ -65,7 +65,10 @@ def run(source: Path, config: dict) -> dict:
                     issues.append({"segment_id": segment.id, "code": "UNCONFIRMED_CONTEXT_PROPOSAL"})
                     continue
                 segment.character_id, segment.addressee_id, segment.addressing = character, addressee, addressing
-                proposals.append({**context, "segment_id": segment.id, "run_evidence_verified": proven})
+                segment.context_provenance = {"source": "TRANSLATION_API_PROPOSAL", "quote_matched_source": proven,
+                                              "identity_confirmed_by_user": False}
+                proposals.append({**context, "segment_id": segment.id, "quote_matched_source": proven,
+                                  "identity_confirmed_by_user": False})
             result.extend(s.model_dump() for s in translated)
         except Exception as error:
             issues.append({"segment_ids": [s.id for s in batch], "code": "TRANSLATION_BATCH_UNAVAILABLE",

@@ -43,7 +43,8 @@ def update_memory(memory: dict, segments: list[dict], run_id: str) -> dict:
     for segment in segments:
         if segment.get("character_id") and segment.get("addressee_id") and segment.get("addressing"):
             history.append({"run_id": run_id, "speaker": segment["character_id"],
-                            "addressee": segment["addressee_id"], "addressing": segment["addressing"]})
+                            "addressee": segment["addressee_id"], "addressing": segment["addressing"],
+                            "provenance": segment.get("context_provenance", {}), "confirmed": False})
     value["addressing_history"] = history[-200:]
     value["last_dialogue"] = [{"zh_text": s["zh_text"], "subtitle_vi": s.get("subtitle_vi", ""),
                                "character_id": s.get("character_id")} for s in segments[-30:]]

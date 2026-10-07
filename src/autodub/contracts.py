@@ -68,6 +68,7 @@ class Segment(StrictModel):
     addressee_id: str | None = None
     character_id: str | None = None
     addressing: dict[str, str] = Field(default_factory=dict)
+    context_provenance: dict[str, str | bool] = Field(default_factory=dict)
     confidence_calibrated: bool = False
     speech_kind: Literal["lexical", "nonverbal", "unknown"] = "unknown"
     asr_text: str = ""
