@@ -485,7 +485,7 @@ class Pipeline:
             # ---------------------------------------------------------
             # Stage 3: TRANSLATING (25% -> 45%)
             # ---------------------------------------------------------
-            from autodub.adapters.local_translation import find_deepseek_api_key
+            from autodub.adapters.local_translation import TRANSLATION_POLICY_REVISION, find_deepseek_api_key
             trans_label = "DeepSeek-V3 API" if find_deepseek_api_key() else "Qwen3.5-4B Offline"
             self.db.transition(
                 ep_id, "TRANSLATING", f"Đang dịch tiếng Trung sang tiếng Việt ({trans_label})",
@@ -496,7 +496,7 @@ class Pipeline:
                 for row in self.db.rows("SELECT zh,vi FROM glossary_entry WHERE series_id=?", (episode["series_id"],))
             }
             context = {
-                s.id: " / ".join(n.zh_text for n in (segments[i - 1:i] + segments[i + 1:i + 2]))
+                s.id: " / ".join(n.zh_text for n in (segments[max(0, i - 3):i] + segments[i + 1:i + 4]))
                 for i, s in enumerate(segments)
             }
             had_translation_checkpoint = "TRANSLATING" in self._checkpoint.get("completed_stages", [])
@@ -505,6 +505,7 @@ class Pipeline:
                 "segments": [s.model_dump() for s in segments],
                 "glossary": glossary,
                 "nearby_context": context,
+                "translation_policy_revision": TRANSLATION_POLICY_REVISION,
             })
             trans_path = Path(trans_res["artifacts"][0])
             self._register_artifact(ep_id, "translation", trans_path)

@@ -2,6 +2,8 @@ import json
 from unittest.mock import MagicMock, patch
 
 from autodub.adapters.local_translation import (
+    _messages,
+    _parse_completion,
     _translate_with_deepseek,
     find_deepseek_api_key,
     run,
@@ -12,6 +14,30 @@ from autodub.contracts import Segment
 def test_find_deepseek_api_key(monkeypatch):
     monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-unit-test")
     assert find_deepseek_api_key() == "sk-unit-test"
+
+
+def test_translation_carries_scene_names_and_marks_timing_as_advisory():
+    segment = Segment(id="role", start_ms=0, end_ms=100, zh_text="我要当baby")
+    messages = _messages([segment], {"baby": "Baby"}, {
+        "scene_context": "Children choose roles in a game.",
+        "nearby_context": {"role": "昨天就是你"},
+    })
+    payload = json.loads(messages[1]["content"])
+    assert payload["translation_priority"] == "faithful_meaning_before_duration"
+    assert payload["scene_context"] == "Children choose roles in a game."
+    assert payload["locked_glossary_zh_to_vi"] == {"baby": "Baby"}
+    assert payload["segments"][0]["nearby_context"] == "昨天就是你"
+    assert "advisory timing estimates" in messages[0]["content"]
+
+
+def test_faithful_dialogue_is_preserved_even_when_it_exceeds_the_timing_estimate():
+    segment = Segment(id="role", start_ms=0, end_ms=100, zh_text="我不能当baby吗")
+    content = json.dumps({"segments": [{"id": "s1", "subtitle_vi": "Tớ không được đóng vai Baby sao?",
+                                       "dub_vi": "Tớ không được đóng vai Baby sao?", "emotion": "questioning",
+                                       "punctuation": "?"}]}, ensure_ascii=False)
+    translated = _parse_completion([segment], content, {"baby": "Baby"})[0]
+    assert translated.dub_vi == "Tớ không được đóng vai Baby sao?"
+    assert translated.start_ms == 0 and translated.end_ms == 100
 
 
 def test_translate_with_deepseek_mocked(tmp_path):
