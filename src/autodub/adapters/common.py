@@ -1,7 +1,6 @@
 import hashlib
 import json
 import os
-import re
 import time
 from contextlib import contextmanager
 from pathlib import Path
@@ -10,34 +9,15 @@ from autodub.model_assets import load_manifest
 
 
 def asset(config: dict, identifier: str) -> tuple[Path, dict]:
-    from autodub.storage import safe_path
-    if not isinstance(identifier, str) or not re.fullmatch(r"[a-z0-9][a-z0-9_-]*", identifier):
-        raise ValueError("Unsafe model asset identifier")
-    root = Path(os.environ["AUTODUB_WORKER_MODELS"] if config.get("production")
-                else config.get("models_root", "/data/models")).resolve()
-    path = safe_path(root, identifier)
-    manifest = load_manifest(path)
-    if config.get("model_lock_path"):
-        from autodub.model_assets import _verify_download
-        lock = json.loads(Path(config["model_lock_path"]).read_text(encoding="utf-8"))
-        expected = next((m for m in lock["models"] if m["id"] == identifier), None)
-        if expected is None or expected["revision"] != manifest["model_revision"]:
-            raise ValueError("Model asset differs from the frozen lock")
-        for item in expected.get("files", []):
-            _verify_download(safe_path(path, item["path"]), item)
-    return path, manifest
+    root = Path(config.get("models_root", "/data/models")).resolve()
+    path = root / identifier
+    return path, load_manifest(path)
 
 
 def output_folder(config: dict) -> Path:
-    folder = Path(os.environ["AUTODUB_WORKER_OUTPUT"] if config.get("production")
-                  else config["output_dir"]).resolve()
+    folder = Path(config["output_dir"]).resolve()
     folder.mkdir(parents=True, exist_ok=True)
     return folder
-
-
-def worker_run_root() -> Path:
-    """Filesystem authority from the launching process, never from request JSON."""
-    return Path(os.environ["AUTODUB_WORKER_RUN_ROOT"]).resolve()
 
 
 def identity(manifests: list[dict]) -> dict:

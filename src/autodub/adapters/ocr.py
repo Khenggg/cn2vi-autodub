@@ -40,9 +40,9 @@ def dense_frame_times(source: Path, start_ms: int, end_ms: int, ffprobe_bin: str
     return times
 
 
-def build_engine(config: dict):
+def build_engine(config: dict, *, resolve_asset=asset):
     from rapidocr import RapidOCR
-    path, manifest = asset(config, config.get("ocr_asset_id", "rapidocr-v6"))
+    path, manifest = resolve_asset(config, config.get("ocr_asset_id", "rapidocr-v6"))
     engine = RapidOCR(params={"Det.model_path": str(path / "det.onnx"),
                               "Rec.model_path": str(path / "rec.onnx"),
                               "Cls.model_path": str(path / "cls.onnx"),

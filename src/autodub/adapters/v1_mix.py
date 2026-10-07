@@ -7,7 +7,7 @@ import subprocess
 import wave
 from pathlib import Path
 
-from autodub.adapters.common import output_folder, worker_run_root
+from autodub.adapters.runtime_paths import output_folder, worker_run_root
 from autodub.storage import atomic_json, safe_path
 
 RATE = 48000

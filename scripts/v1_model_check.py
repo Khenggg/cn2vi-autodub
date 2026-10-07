@@ -2,15 +2,18 @@
 import argparse
 import inspect
 import json
+import os
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
 
-from autodub.adapters.common import asset, configure_offline
+from autodub.adapters.common import configure_offline
+from autodub.adapters.runtime_paths import asset
 
 
 def check(profile: str, models_root: Path) -> None:
+    os.environ["AUTODUB_WORKER_MODELS"] = str(models_root.resolve())
     config = {"models_root": str(models_root)}
     configure_offline(config)
     if profile == "separation":
@@ -39,7 +42,7 @@ def check(profile: str, models_root: Path) -> None:
         assert "emo_audio_prompt" in inspect.signature(IndexTTS2.infer).parameters
     elif profile == "vision":
         from autodub.adapters.ocr import build_engine
-        engine, _ = build_engine({**config, "ocr_asset_id": "rapidocr-v6-medium"})
+        engine, _ = build_engine({**config, "ocr_asset_id": "rapidocr-v6-medium"}, resolve_asset=asset)
         assert callable(engine)
         code, _ = asset(config, "propainter-code")
         sys.path.insert(0, str(code / "source"))

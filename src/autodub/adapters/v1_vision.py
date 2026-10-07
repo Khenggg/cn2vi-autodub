@@ -6,8 +6,9 @@ import sys
 import time
 from pathlib import Path
 
-from autodub.adapters.common import asset, identity, output_folder
+from autodub.adapters.common import identity
 from autodub.adapters.ocr import build_engine
+from autodub.adapters.runtime_paths import asset, output_folder
 from autodub.storage import atomic_json
 
 
@@ -43,7 +44,7 @@ def scan(source: Path, config: dict) -> dict:
         raise ValueError("Video cannot be decoded for subtitle detection")
     width, height = int(capture.get(cv2.CAP_PROP_FRAME_WIDTH)), int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT))
     tick = time.perf_counter()
-    engine, manifest = build_engine({**config, "ocr_asset_id": "rapidocr-v6-medium"})
+    engine, manifest = build_engine({**config, "ocr_asset_id": "rapidocr-v6-medium"}, resolve_asset=asset)
     load_ms = (time.perf_counter() - tick) * 1000
     tick = time.perf_counter()
     frames = []
@@ -110,7 +111,7 @@ def inpaint(source: Path, config: dict) -> dict:
     folder = output_folder(config)
     code, code_manifest = asset(config, "propainter-code")
     weights, weight_manifest = asset(config, "propainter-weights")
-    engine, ocr_manifest = build_engine({**config, "ocr_asset_id": "rapidocr-v6-medium"})
+    engine, ocr_manifest = build_engine({**config, "ocr_asset_id": "rapidocr-v6-medium"}, resolve_asset=asset)
     capture = cv2.VideoCapture(str(source))
     width, height = int(capture.get(cv2.CAP_PROP_FRAME_WIDTH)), int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT))
     fps = capture.get(cv2.CAP_PROP_FPS)

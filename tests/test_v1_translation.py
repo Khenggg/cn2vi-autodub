@@ -15,6 +15,7 @@ def test_missing_key_never_activates_local_model(tmp_path, monkeypatch):
 
 def test_context_evidence_and_token_usage_without_credentials(tmp_path, monkeypatch):
     monkeypatch.setenv("DEEPSEEK_API_KEY", "private-test-key")
+    monkeypatch.setenv("AUTODUB_WORKER_OUTPUT", str(tmp_path))
     segment = {"id": "s", "start_ms": 0, "end_ms": 1000, "zh_text": "你好", "action": "DUB"}
     content = {"segments": [{"id": "s1", "subtitle_vi": "Xin chào", "dub_vi": "Xin chào",
                              "emotion": "neutral", "punctuation": "."}],
@@ -40,7 +41,7 @@ def test_gated_asset_redirect_does_not_leak_hf_auth_to_cdn():
 
 
 def test_request_json_cannot_override_worker_filesystem_roots(tmp_path, monkeypatch):
-    from autodub.adapters import common
+    from autodub.adapters import runtime_paths as common
     model_root = tmp_path / "models"
     output = tmp_path / "allowed-output"
     monkeypatch.setenv("AUTODUB_WORKER_MODELS", str(model_root))
@@ -48,8 +49,8 @@ def test_request_json_cannot_override_worker_filesystem_roots(tmp_path, monkeypa
     monkeypatch.setattr(common, "load_manifest", lambda path: {"id": path.name})
     config = {"production": True, "models_root": str(tmp_path / "other"),
               "output_dir": str(tmp_path / "forbidden")}
-    path, _ = common.asset(config, "model-a")
-    assert path == model_root / "model-a"
+    path, _ = common.asset(config, "bandit-v2-cinematic")
+    assert path == model_root / "bandit-v2-cinematic"
     assert common.output_folder(config) == output
     assert not (tmp_path / "forbidden").exists()
     with pytest.raises(ValueError, match="Unsafe"):

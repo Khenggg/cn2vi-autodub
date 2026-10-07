@@ -7,14 +7,8 @@ import sys
 import time
 from pathlib import Path
 
-from autodub.adapters.common import (
-    asset,
-    configure_offline,
-    identity,
-    local_hub_files,
-    output_folder,
-    worker_run_root,
-)
+from autodub.adapters.common import configure_offline, identity, local_hub_files
+from autodub.adapters.runtime_paths import asset, output_folder, worker_run_root
 from autodub.benchmedia import extract_audio
 from autodub.config import DEFAULT_VOICE_ID
 from autodub.storage import atomic_json, safe_path, sha256_file

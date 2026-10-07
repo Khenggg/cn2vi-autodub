@@ -7,8 +7,8 @@ import time
 import urllib.request
 from pathlib import Path
 
-from autodub.adapters.common import output_folder
 from autodub.adapters.local_translation import _messages, _parse_completion
+from autodub.adapters.runtime_paths import output_folder
 from autodub.contracts import Segment
 from autodub.storage import atomic_json
 

@@ -8,7 +8,8 @@ import time
 import unicodedata
 from pathlib import Path
 
-from autodub.adapters.common import asset, configure_offline, identity, output_folder
+from autodub.adapters.common import configure_offline, identity
+from autodub.adapters.runtime_paths import asset, output_folder
 from autodub.benchmedia import extract_audio
 from autodub.storage import atomic_json, sha256_file
 
