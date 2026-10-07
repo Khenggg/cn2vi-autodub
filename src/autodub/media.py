@@ -8,7 +8,7 @@ class MediaError(RuntimeError):
     pass
 
 
-def probe_media(path: Path, executable: str = "ffprobe") -> dict:
+def _probe_payload(path: Path, executable: str) -> dict:
     try:
         result = subprocess.run(
             [executable, "-v", "error", "-show_format", "-show_streams", "-of", "json", str(path)],
@@ -17,9 +17,30 @@ def probe_media(path: Path, executable: str = "ffprobe") -> dict:
     except (OSError, subprocess.TimeoutExpired) as error:
         raise MediaError("FFprobe unavailable or timed out; install FFmpeg / configure FFPROBE_BIN") from error
     if result.returncode != 0:
-        raise MediaError("Video could not be decoded by FFprobe")
+        raise MediaError("Media could not be decoded by FFprobe")
     try:
-        payload = json.loads(result.stdout)
+        return json.loads(result.stdout)
+    except json.JSONDecodeError as error:
+        raise MediaError("FFprobe returned invalid media metadata") from error
+
+
+def probe_audio(path: Path, executable: str = "ffprobe") -> dict:
+    """Inspect recognition audio without requiring a video stream."""
+    payload = _probe_payload(path, executable)
+    try:
+        audio = next(stream for stream in payload["streams"] if stream.get("codec_type") == "audio")
+        seconds = Decimal(str(audio.get("duration") or payload["format"]["duration"]))
+        if not seconds.is_finite() or seconds <= 0:
+            raise ValueError("Invalid audio duration")
+        return {"schema_version": 1, "duration_ms": int(seconds * 1000),
+                "audio": {key: audio.get(key) for key in ("codec_name", "sample_rate", "channels")}}
+    except (KeyError, StopIteration, ValueError, InvalidOperation, TypeError) as error:
+        raise MediaError("Input must contain a valid audio track with a known duration") from error
+
+
+def probe_media(path: Path, executable: str = "ffprobe") -> dict:
+    payload = _probe_payload(path, executable)
+    try:
         streams = payload["streams"]
         video = next(stream for stream in streams if stream.get("codec_type") == "video"
                      and not stream.get("disposition", {}).get("attached_pic", 0))

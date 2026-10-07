@@ -62,7 +62,7 @@ def run_asr(source: Path, config: dict) -> dict:
     language = str(getattr(info, "language", "") or "").lower()
     if not LANGUAGE_CODE.fullmatch(language):
         raise ValueError("Whisper did not return a supported language code")
-    duration_ms = media.probe_media(source, config.get("ffprobe_bin", "ffprobe"))["duration_ms"]
+    duration_ms = media.probe_audio(source, config.get("ffprobe_bin", "ffprobe"))["duration_ms"]
     segments = []
     for index, item in enumerate(raw_segments):
         text = str(getattr(item, "text", "") or "").strip()
@@ -78,8 +78,12 @@ def run_asr(source: Path, config: dict) -> dict:
         ))
     folder = output_folder(config)
     target = folder / "transcript.zh.json"
+    source_hash = sha256_file(source)
     atomic_json(target, {
-        "schema_version": 1, "source_sha256": sha256_file(source), "language": language,
+        "schema_version": 1, "source_sha256": source_hash, "language": language,
+        "original_source_sha256": config.get("original_source_sha256", source_hash),
+        "audio_input_kind": config.get("audio_input_kind", "source_audio"),
+        "audio_timeline_offset_ms": 0,
         "language_probability": getattr(info, "language_probability", None),
         "segments": [segment.model_dump() for segment in segments],
         "confidence_policy": "upstream_has_no_calibrated_confidence",
@@ -188,6 +192,11 @@ def run_alignment(source: Path, config: dict) -> dict:
     source_hash = sha256_file(source)
     if transcript.get("schema_version") != 1 or transcript.get("source_sha256") != source_hash:
         raise ValueError("Transcript source hash mismatch")
+    provenance = {
+        "original_source_sha256": transcript.get("original_source_sha256", source_hash),
+        "audio_input_kind": transcript.get("audio_input_kind", "source_audio"),
+        "audio_timeline_offset_ms": 0,
+    }
     segments = [Segment.model_validate(item) for item in transcript.get("segments", [])]
     language = str(transcript.get("language", "")).lower()
     folder = output_folder(config)
@@ -200,6 +209,7 @@ def run_alignment(source: Path, config: dict) -> dict:
         output = _review_segments(segments)
         atomic_json(target, {
             "schema_version": 1, "source_sha256": source_hash, "language": language or None,
+            **provenance,
             "alignment_status": "UNSUPPORTED_LANGUAGE_NO_WORD_TIMES", "required_asset": required,
             "segments": output, "word_timing_available": False,
         })
@@ -268,6 +278,7 @@ def run_alignment(source: Path, config: dict) -> dict:
     timing_available = bool(output) and all(item["words"] for item in output)
     atomic_json(target, {
         "schema_version": 1, "source_sha256": source_hash, "language": language,
+        **provenance,
         "alignment_status": "ALIGNED" if timing_available else "PARTIAL_REVIEW_REQUIRED",
         "segments": output, "word_timing_available": timing_available,
         "alignment_policy_revision": ALIGNMENT_POLICY_REVISION,

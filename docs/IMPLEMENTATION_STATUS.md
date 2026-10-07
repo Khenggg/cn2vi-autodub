@@ -5,7 +5,7 @@ Cập nhật từ main `01d9e7c` và nhánh pipeline hardening ngày 06/10/2026.
 | Phần | Đã triển khai | Còn cần xác nhận / hoàn thiện |
 | --- | --- | --- |
 | Core | Auth, Series/glossary, upload tiếp tục, hàng đợi, SSE, media probing, tải artifact | Portable import workspace và resource leases |
-| Lồng tiếng | ASR → align → dịch → tách stem → TTS → fitting → mix → QC → mux đã nối web | Chất lượng trên phim thật, từ/ngôn ngữ sai và giọng nhân vật |
+| Lồng tiếng | Kim_Vocal_2 → ASR trên vocals → align trên vocals → dịch → TTS → fitting → mix dùng lại stem → QC → mux đã nối web | Chất lượng trên phim thật, từ/ngôn ngữ sai và giọng nhân vật |
 | Kiểm duyệt | Sửa lời Việt, giữ âm gốc, thời gian từng từ, giọng/nhân vật thủ công; chặn fitting lệch quá 20% | Diarization và tự chọn giọng chưa có trong thay đổi này |
 | Recovery | Checkpoint schema 2, hash nguồn/artifact, tái dùng stage hợp lệ, giữ sửa tay, drain/restart/cancel | Mix Python dừng ở ranh giới stage, chưa ngắt giữa phép hòa trộn; portable resume khác host cần xác minh |
 | Vietsub/ROI | Chọn chế độ upload, vẽ ROI, SRT/libass, OCR/LaMa trong vùng và worker vision riêng | Chất lượng temporal/residual subtitle cần đánh giá; timeline không hỗ trợ sẽ dừng review; chưa có NVENC tối ưu |

@@ -13,6 +13,7 @@ from pathlib import Path
 
 from autodub.audio_mix import fit_voice, mix_preview
 from autodub.checkpoint import (
+    STAGE_ORDER,
     CheckpointError,
     artifact_record,
     fingerprint,
@@ -22,7 +23,7 @@ from autodub.checkpoint import (
 )
 from autodub.config import Settings
 from autodub.contracts import Roi, Segment
-from autodub.domain import plan_separation_windows
+from autodub.media import probe_audio
 from autodub.model_runner import ModelRunner
 from autodub.storage import Database, now_ms, safe_path, sha256_file
 
@@ -99,8 +100,8 @@ class Pipeline:
             completed.append(stage)
         results = self._checkpoint.setdefault("results", {})
         results[stage] = result
-        next_stage = stage if needs_review else {"ASR": "ALIGNING", "ALIGNING": "TRANSLATING",
-                      "TRANSLATING": "SEPARATING", "SEPARATING": "TTS",
+        next_stage = stage if needs_review else {"SEPARATING": "ASR", "ASR": "ALIGNING",
+                      "ALIGNING": "TRANSLATING", "TRANSLATING": "TTS",
                       "TTS": "TIMING", "VISION_RENDER": "ENCODING"}.get(stage, "TIMING")
         path = save_checkpoint(self.settings.data_dir, self._episode_id,
                                self._source_sha256, self._config_fingerprint,
@@ -126,8 +127,7 @@ class Pipeline:
             return result
         # User edits to text/action after a review invalidate this stage and its
         # dependants, while retaining earlier source-derived work.
-        order = ["ASR", "ALIGNING", "TRANSLATING", "SEPARATING", "TTS",
-                 "TIMING", "AUDIO_MIX", "QC", "VISION_RENDER", "ENCODING"]
+        order = STAGE_ORDER
         if stage in order:
             start = order.index(stage)
             invalidated = set(order[start:])
@@ -399,6 +399,27 @@ class Pipeline:
                     ),
                 )
 
+    def _recognition_audio(self, separation_path: Path, duration_ms: int) -> Path:
+        """Require an uncropped, zero-offset vocal stem on the source timeline."""
+        metadata = json.loads(separation_path.read_text(encoding="utf-8"))
+        windows = metadata.get("windows", [])
+        if (metadata.get("schema_version") != 1 or len(windows) != 1
+                or windows[0].get("start_ms") != 0
+                or windows[0].get("end_ms") != duration_ms):
+            raise ValueError("Recognition requires full-length separated vocals")
+        window = windows[0]
+        dialogue = window.get("dialogue")
+        if not isinstance(dialogue, str) or dialogue not in window.get("stems", []):
+            raise ValueError("Separated vocal stem is missing")
+        root = separation_path.parent.resolve()
+        vocals = (root / dialogue).resolve(strict=True)
+        if not vocals.is_relative_to(root) or not vocals.is_file():
+            raise ValueError("Separated vocal stem path is invalid")
+        audio = probe_audio(vocals, self.settings.ffprobe_bin)
+        if abs(audio["duration_ms"] - duration_ms) > 250:
+            raise ValueError("Separated vocal stem changed the source timeline")
+        return vocals
+
     def run(self, episode: dict, metadata: dict, should_stop=None) -> bool:
         ep_id = episode["id"]
         source = safe_path(self.settings.data_dir, episode["source_path"])
@@ -424,13 +445,37 @@ class Pipeline:
             self._checkpoint.setdefault("completed_stages", [])
             self._checkpoint["media"] = metadata
             # ---------------------------------------------------------
-            # Stage 1: ASR (5% -> 15%)
+            # Stage 1: SEPARATING (5% -> 15%). Both stems retain the full timeline.
+            # Pin the provider; never silently run ASR on the original mixture.
+            # ---------------------------------------------------------
+            self.db.transition(
+                ep_id, "SEPARATING", "Đang tách giọng khỏi nhạc nền trước ASR (Kim_Vocal_2)",
+                progress=0.10, next_stage="ASR",
+            )
+            sep_res = self._run_stage("SEPARATING", source, {
+                "output_dir": str(work_dir / "separating"),
+                "separation_provider": "roformer",
+                "separation_policy_revision": 2,
+                "windows": [{"start_ms": 0, "end_ms": duration_ms}],
+            })
+            sep_path = Path(sep_res["artifacts"][0])
+            self._register_artifact(ep_id, "separation", sep_path)
+            recognition_audio = self._recognition_audio(sep_path, duration_ms)
+            recognition_hash = sha256_file(recognition_audio)
+
+            # ---------------------------------------------------------
+            # Stage 2: ASR (15% -> 25%)
             # ---------------------------------------------------------
             self.db.transition(
                 ep_id, "ASR", "Đang nhận diện giọng nói và phát hiện ngôn ngữ (Faster-Whisper)",
-                progress=0.10, next_stage="ALIGNING",
+                progress=0.20, next_stage="ALIGNING",
             )
-            asr_res = self._run_stage("ASR", source, {"output_dir": str(work_dir / "asr")})
+            asr_res = self._run_stage("ASR", recognition_audio, {
+                "output_dir": str(work_dir / "asr"),
+                "recognition_audio_sha256": recognition_hash,
+                "original_source_sha256": self._source_sha256,
+                "audio_input_kind": "separated_vocals",
+            })
             transcript_path = Path(asr_res["artifacts"][0])
             self._register_artifact(ep_id, "transcript", transcript_path)
             transcript_data = json.loads(transcript_path.read_text(encoding="utf-8"))
@@ -444,23 +489,25 @@ class Pipeline:
                 return False
 
             # ---------------------------------------------------------
-            # Stage 2: ALIGNING (15% -> 25%)
+            # Stage 3: ALIGNING (25% -> 35%)
             # ---------------------------------------------------------
             self.db.transition(
                 ep_id, "ALIGNING", "Đang căn chỉnh thời gian từng từ theo ngôn ngữ (WhisperX)",
-                progress=0.20, next_stage="TRANSLATING",
+                progress=0.30, next_stage="TRANSLATING",
             )
             from autodub.adapters.whisper import ALIGNMENT_POLICY_REVISION
             align_config = {
                 "output_dir": str(work_dir / "align"),
                 "transcript_path": str(transcript_path),
                 "alignment_policy_revision": ALIGNMENT_POLICY_REVISION,
+                "recognition_audio_sha256": recognition_hash,
+                "transcript_sha256": sha256_file(transcript_path),
             }
             had_alignment_checkpoint = (
                 "ALIGNING" in self._checkpoint.get("completed_stages", [])
                 and self._checkpoint.get("stage_inputs", {}).get("ALIGNING") == fingerprint(align_config)
             )
-            align_res = self._run_stage("ALIGNING", source, align_config)
+            align_res = self._run_stage("ALIGNING", recognition_audio, align_config)
             align_path = Path(align_res["artifacts"][0])
             self._register_artifact(ep_id, "alignment", align_path)
             align_data = json.loads(align_path.read_text(encoding="utf-8"))
@@ -483,13 +530,13 @@ class Pipeline:
                 return False
 
             # ---------------------------------------------------------
-            # Stage 3: TRANSLATING (25% -> 45%)
+            # Stage 4: TRANSLATING (35% -> 65%)
             # ---------------------------------------------------------
             from autodub.adapters.local_translation import TRANSLATION_POLICY_REVISION, find_deepseek_api_key
             trans_label = "DeepSeek-V3 API" if find_deepseek_api_key() else "Qwen3.5-4B Offline"
             self.db.transition(
                 ep_id, "TRANSLATING", f"Đang dịch tiếng Trung sang tiếng Việt ({trans_label})",
-                progress=0.35, next_stage="SEPARATING",
+                progress=0.50, next_stage="TTS",
             )
             glossary = {
                 row["zh"]: row["vi"]
@@ -531,32 +578,14 @@ class Pipeline:
             if unresolved:
                 with self.db.lock:
                     self.db.transition(ep_id, "NEEDS_REVIEW", "Review unresolved transcript or translation lines",
-                                       next_stage="SEPARATING", queue_requested=0)
+                                       next_stage="TTS", queue_requested=0)
                     self.db.event(ep_id, "NEEDS_REVIEW", "Automatic review gate held unresolved lines",
                                   {"segment_count": len(unresolved)})
                 return False
 
-            # ---------------------------------------------------------
-            # Stage 4: SEPARATING (45% -> 65%)
-            # ---------------------------------------------------------
-            sep_label = "Kim_Vocal_2 (MDX-Net)"
             dub_segments = [s for s in segments if s.action == "DUB" and s.dub_vi.strip()]
             if not dub_segments:
                 return self._passthrough_audio(ep_id, episode, source, work_dir, duration_ms)
-
-            self.db.transition(
-                ep_id, "SEPARATING", f"Đang tách âm thanh: Thoại và BGM/SFX ({sep_label})",
-                progress=0.55, next_stage="TTS",
-            )
-
-            windows = plan_separation_windows([(s.start_ms, s.end_ms) for s in dub_segments], duration_ms)
-
-            sep_res = self._run_stage("SEPARATING", source, {
-                "output_dir": str(work_dir / "separating"),
-                "windows": windows,
-            })
-            sep_path = Path(sep_res["artifacts"][0])
-            self._register_artifact(ep_id, "separation", sep_path)
 
             # ---------------------------------------------------------
             # Stage 5: TTS (65% -> 75%)
@@ -662,7 +691,7 @@ class Pipeline:
                                        mix_report if isinstance(mix_report, dict) else {})
 
         except _PipelineStopped:
-            stage = self._active_stage or self._checkpoint.get("next_stage") or "ASR"
+            stage = self._active_stage or self._checkpoint.get("next_stage") or "SEPARATING"
             with self.db.lock:
                 current = self.db.one("SELECT status FROM episode WHERE id=?", (ep_id,))
                 if current and current["status"] != "CHECKPOINTED":
@@ -681,7 +710,7 @@ class Pipeline:
             return self._fail(ep_id, "CHECKPOINT_INVALID", "Saved pipeline checkpoint is invalid; retry from the last valid stage")
         except Exception:
             if self._should_stop():
-                stage = self._active_stage or self._checkpoint.get("next_stage") or "ASR"
+                stage = self._active_stage or self._checkpoint.get("next_stage") or "SEPARATING"
                 with self.db.lock:
                     current = self.db.one("SELECT status FROM episode WHERE id=?", (ep_id,))
                     if current and current["status"] != "CHECKPOINTED":

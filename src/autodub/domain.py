@@ -29,8 +29,8 @@ class State(StrEnum):
     SKIPPED = "SKIPPED"
 
 
-PIPELINE = [State.QUEUED, State.UPLOADING, State.PREPARING, State.ASR, State.ALIGNING,
-            State.TRANSLATING, State.SEPARATING, State.TTS, State.TIMING, State.AUDIO_MIX,
+PIPELINE = [State.QUEUED, State.UPLOADING, State.PREPARING, State.SEPARATING, State.ASR,
+            State.ALIGNING, State.TRANSLATING, State.TTS, State.TIMING, State.AUDIO_MIX,
             State.QC, State.PREVIEW_READY, State.AWAITING_ROI, State.OCR_VERIFY,
             State.TEXT_REMOVAL, State.SUBTITLE_RENDER, State.ENCODING, State.COMPLETED]
 
