@@ -64,6 +64,13 @@ class Segment(StrictModel):
     emotion: str = "neutral"
     voice_id: str | None = Field(default=None, min_length=1, max_length=80)
     speaker_id: str | None = Field(default=None, min_length=1, max_length=80)
+    track_id: str | None = None
+    addressee_id: str | None = None
+    character_id: str | None = None
+    addressing: dict[str, str] = Field(default_factory=dict)
+    confidence_calibrated: bool = False
+    speech_kind: Literal["lexical", "nonverbal", "unknown"] = "unknown"
+    asr_text: str = ""
     action: Literal["DUB", "KEEP", "NEEDS_REVIEW"] = "KEEP"
     confidence: dict[str, float | None] = Field(default_factory=dict)
     needs_review: bool = False

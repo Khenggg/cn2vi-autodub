@@ -3,32 +3,46 @@ set -Eeuo pipefail
 
 usage() {
   cat <<'EOF'
-Usage: scripts/cloud_setup.sh [--dry-run] [--prepare-only] [--check-host]
+Usage: scripts/cloud_setup.sh [--dry-run] [--prepare-only] [--check-host] [--verify-startup] [--profiles <list>] [--profile <name>] [--with-docker]
 
 Run from the cloned GitHub checkout on the cloud VM. The normal run bootstraps the
 Ubuntu host, fetches and verifies the runtime plan assets, then requires every
-profile preflight to pass. --prepare-only skips model weights; --check-host is read-only. It does not create or stop machines or run benchmarks.
+profile preflight to pass. --prepare-only skips model weights; --check-host is read-only.
+--verify-startup tests Web UI startup and healthz. It does not create or stop machines or run benchmarks.
 
 Environment:
   PROJECT_ROOT          Project directory (defaults to this script's parent)
   AUTODUB_DATA_ROOT     Persistent data root (defaults to /data)
   AUTODUB_VENV_ROOT     Virtualenv root (defaults to /opt/autodub/venvs)
   AUTODUB_SETUP_JOURNAL Journal path (defaults to DATA_ROOT/results/cloud-setup-<run>.log)
+  AUTODUB_PROFILES      Optional comma-separated profile list
 EOF
 }
 
 DRY_RUN=0
 PREPARE_ONLY=0
 CHECK_HOST=0
-for argument in "$@"; do
-  case "$argument" in
-    --dry-run) DRY_RUN=1 ;;
-    --prepare-only) PREPARE_ONLY=1 ;;
-    --check-host) CHECK_HOST=1 ;;
+VERIFY_STARTUP=0
+WITH_DOCKER=0
+EXPLICIT_PROFILES=""
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --dry-run) DRY_RUN=1; shift ;;
+    --prepare-only) PREPARE_ONLY=1; shift ;;
+    --check-host) CHECK_HOST=1; shift ;;
+    --verify-startup) VERIFY_STARTUP=1; shift ;;
+    --with-docker) WITH_DOCKER=1; shift ;;
+    --profiles) EXPLICIT_PROFILES="$2"; shift 2 ;;
+    --profile) EXPLICIT_PROFILES="$2"; shift 2 ;;
     --help|-h) usage; exit 0 ;;
     *) usage >&2; exit 64 ;;
   esac
 done
+
+if [[ -z "$EXPLICIT_PROFILES" && -n "${AUTODUB_PROFILES:-}" ]]; then
+  EXPLICIT_PROFILES="${AUTODUB_PROFILES}"
+fi
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 PROJECT_ROOT="${PROJECT_ROOT:-$(cd -- "$SCRIPT_DIR/.." && pwd -P)}"
@@ -36,12 +50,25 @@ AUTODUB_DATA_ROOT="${AUTODUB_DATA_ROOT:-/data}"
 AUTODUB_VENV_ROOT="${AUTODUB_VENV_ROOT:-/opt/autodub/venvs}"
 LOCK_FILE="$PROJECT_ROOT/benchmarks/models.lock.json"
 BOOTSTRAP="$PROJECT_ROOT/scripts/cloud_bootstrap.sh"
+
 PLAN_PYTHON="$(command -v python3 || true)"
-[[ -n "$PLAN_PYTHON" ]] || { echo 'Install git, ca-certificates and python3 before setup.' >&2; exit 69; }
-ASSET_LIST="$("$PLAN_PYTHON" "$PROJECT_ROOT/scripts/cloud_plan.py" --field assets)"
-PROFILE_LIST="$("$PLAN_PYTHON" "$PROJECT_ROOT/scripts/cloud_plan.py" --field profiles)"
-mapfile -t ASSETS <<< "$ASSET_LIST"
-mapfile -t PROFILES <<< "$PROFILE_LIST"
+
+PLAN_ARGS=()
+if [[ -n "$EXPLICIT_PROFILES" ]]; then
+  PLAN_ARGS+=(--profiles "$EXPLICIT_PROFILES")
+fi
+
+ASSETS=()
+PROFILES=()
+if [[ -n "$PLAN_PYTHON" ]]; then
+  ASSET_LIST="$("$PLAN_PYTHON" "$PROJECT_ROOT/scripts/cloud_plan.py" "${PLAN_ARGS[@]}" --field assets)"
+  PROFILE_LIST="$("$PLAN_PYTHON" "$PROJECT_ROOT/scripts/cloud_plan.py" "${PLAN_ARGS[@]}" --field profiles)"
+  mapfile -t ASSETS <<< "$ASSET_LIST"
+  mapfile -t PROFILES <<< "$PROFILE_LIST"
+elif ((DRY_RUN)); then
+  echo 'Install git, ca-certificates and python3 before setup.' >&2
+  exit 69
+fi
 
 if ((DRY_RUN)); then
   printf 'DRY RUN: no packages, downloads, models, or preflight commands will run.\n'
@@ -139,7 +166,6 @@ on_exit() {
 }
 trap on_exit EXIT
 
-
 run_step() {
   local name="$1"
   shift
@@ -159,8 +185,17 @@ run_step() {
   fi
 }
 
+BOOTSTRAP_ARGS=()
+if [[ -n "$EXPLICIT_PROFILES" ]]; then
+  BOOTSTRAP_ARGS+=(--profiles "$EXPLICIT_PROFILES")
+fi
+if ((WITH_DOCKER)); then
+  BOOTSTRAP_ARGS+=(--with-docker)
+fi
+
 run_step host_preflight check_cloud_host
-run_step bootstrap bash "$BOOTSTRAP"
+run_step bootstrap bash "$BOOTSTRAP" "${BOOTSTRAP_ARGS[@]}"
+
 CORE_PYTHON="$AUTODUB_VENV_ROOT/core/bin/python"
 for executable in "$CORE_PYTHON"; do
   [[ -x "$executable" ]] || {
@@ -170,14 +205,26 @@ for executable in "$CORE_PYTHON"; do
   }
 done
 
-if ((PREPARE_ONLY == 0)); then
-run_step fetch_assets "$CORE_PYTHON" -m autodub.model_assets fetch --lock "$LOCK_FILE" \
-  --root "$AUTODUB_DATA_ROOT/models" --only "${ASSETS[@]}"
-run_step verify_assets "$CORE_PYTHON" -m autodub.model_assets verify --lock "$LOCK_FILE" \
-  --root "$AUTODUB_DATA_ROOT/models" --only "${ASSETS[@]}"
-run_step prepare_tokenizers "$CORE_PYTHON" "$PROJECT_ROOT/scripts/cloud_tokenizers.py" \
-  --models-root "$AUTODUB_DATA_ROOT/models" --cache-root "$AUTODUB_DATA_ROOT/cache"
+if [[ ${#PROFILES[@]} -eq 0 || ${#ASSETS[@]} -eq 0 ]]; then
+  ASSET_LIST="$("$CORE_PYTHON" "$PROJECT_ROOT/scripts/cloud_plan.py" "${PLAN_ARGS[@]}" --field assets)"
+  PROFILE_LIST="$("$CORE_PYTHON" "$PROJECT_ROOT/scripts/cloud_plan.py" "${PLAN_ARGS[@]}" --field profiles)"
+  mapfile -t ASSETS <<< "$ASSET_LIST"
+  mapfile -t PROFILES <<< "$PROFILE_LIST"
+fi
 
+if ((PREPARE_ONLY == 0)); then
+  if [[ " ${ASSETS[*]} " == *" pyannote-community-1 "* && -z "${HF_TOKEN:-}" ]]; then
+    printf 'cloud_setup: Community-1 requires Hugging Face access. Accept the model terms at https://huggingface.co/pyannote/speaker-diarization-community-1 and export HF_TOKEN on this cloud host.\n' >&2
+    exit 69
+  fi
+  run_step fetch_assets "$CORE_PYTHON" -m autodub.model_assets fetch --lock "$LOCK_FILE" \
+    --root "$AUTODUB_DATA_ROOT/models" --only "${ASSETS[@]}"
+  run_step verify_assets "$CORE_PYTHON" -m autodub.model_assets verify --lock "$LOCK_FILE" \
+    --root "$AUTODUB_DATA_ROOT/models" --only "${ASSETS[@]}"
+  if [[ " ${ASSETS[*]} " == *" nltk-tokenizers "* ]]; then
+    run_step prepare_tokenizers "$CORE_PYTHON" "$PROJECT_ROOT/scripts/cloud_tokenizers.py" \
+      --models-root "$AUTODUB_DATA_ROOT/models" --cache-root "$AUTODUB_DATA_ROOT/cache"
+  fi
 fi
 
 if [[ -f "$PROJECT_ROOT/scripts/cloud_frontend.sh" && -f "$PROJECT_ROOT/frontend/package.json" ]]; then
@@ -188,15 +235,58 @@ for profile in "${PROFILES[@]}"; do
   report="$AUTODUB_DATA_ROOT/results/preflight-$profile.json"
   args=(--require-cloud --profile "$profile" --models-root "$AUTODUB_DATA_ROOT/models" \
     --cache-root "$AUTODUB_DATA_ROOT/cache" --output "$report")
+  if [[ "$profile" == vision && " ${ASSETS[*]} " == *" propainter-code "* ]]; then
+    args+=(--torch-for-vision)
+  fi
   if [[ "$profile" == asr && "$PREPARE_ONLY" == 0 ]]; then
-    args+=(--model-manifest "$AUTODUB_DATA_ROOT/models/whisper-asr/model-manifest.json")
+    if [[ " ${ASSETS[*]} " == *" firered-asr2-aed "* ]]; then
+      args+=(--model-manifest "$AUTODUB_DATA_ROOT/models/firered-asr2-aed/model-manifest.json")
+    else
+      args+=(--model-manifest "$AUTODUB_DATA_ROOT/models/whisper-asr/model-manifest.json")
+    fi
   fi
   run_step "preflight_$profile" "$AUTODUB_VENV_ROOT/$profile/bin/python" -m autodub.preflight "${args[@]}"
+  if ((PREPARE_ONLY == 0)) && [[ " ${ASSETS[*]} " == *" firered-code "* ]]; then
+    run_step "model_import_$profile" "$AUTODUB_VENV_ROOT/$profile/bin/python" \
+      "$PROJECT_ROOT/scripts/v1_model_check.py" --profile "$profile" --models-root "$AUTODUB_DATA_ROOT/models"
+  fi
 done
+
+verify_service_startup() {
+  local start_script="$PROJECT_ROOT/scripts/start_web.sh"
+  if [[ ! -f "$start_script" ]]; then
+    printf 'cloud_setup: start_web.sh not found at %s\n' "$start_script" >&2
+    return 1
+  fi
+  printf 'cloud_setup: verifying web UI startup with ENABLE_PIPELINE=false...\n'
+  ENABLE_PIPELINE=false bash "$start_script" start
+  local probe_ok=0
+  for ((attempt=0; attempt<15; attempt++)); do
+    if command -v curl >/dev/null 2>&1; then
+      if curl -sf --max-time 2 http://127.0.0.1:8080/healthz >/dev/null 2>&1; then
+        probe_ok=1
+        break
+      fi
+    fi
+    sleep 1
+  done
+  if ((probe_ok == 0)); then
+    printf 'cloud_setup: web startup probe timed out; check web log\n' >&2
+    return 1
+  fi
+  printf 'cloud_setup: web startup probe passed; server running (PID file exists)\n'
+  return 0
+}
+
+if ((VERIFY_STARTUP)); then
+  run_step verify_startup verify_service_startup
+fi
 
 SETUP_STATUS=ASSETS_VERIFIED
 if ((PREPARE_ONLY)); then SETUP_STATUS=ENVIRONMENT_READY; fi
-printf 'run_status=%s\nfinished_at=%s\n' "$SETUP_STATUS" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$JOURNAL"
+if ((VERIFY_STARTUP)); then SETUP_STATUS=STARTUP_VERIFIED; fi
+printf 'run_status=%s\ninference_quality=UNVERIFIED\nfinished_at=%s\n' \
+  "$SETUP_STATUS" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$JOURNAL"
 FINALIZED=1
 CURRENT_STEP=complete
 printf 'cloud_setup: %s journal=%s; model inference and video quality remain unverified.\n' "$SETUP_STATUS" "$JOURNAL"

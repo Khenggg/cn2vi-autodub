@@ -11,7 +11,17 @@ from autodub.model_assets import load_manifest
 def asset(config: dict, identifier: str) -> tuple[Path, dict]:
     root = Path(config.get("models_root", "/data/models")).resolve()
     path = root / identifier
-    return path, load_manifest(path)
+    manifest = load_manifest(path)
+    if config.get("model_lock_path"):
+        from autodub.model_assets import _verify_download
+        lock = json.loads(Path(config["model_lock_path"]).read_text(encoding="utf-8"))
+        expected = next((m for m in lock["models"] if m["id"] == identifier), None)
+        if expected is None or expected["revision"] != manifest["model_revision"]:
+            raise ValueError("Model asset differs from the frozen lock")
+        for item in expected.get("files", []):
+            from autodub.storage import safe_path
+            _verify_download(safe_path(path, item["path"]), item)
+    return path, manifest
 
 
 def output_folder(config: dict) -> Path:
@@ -31,6 +41,7 @@ def configure_offline(config: dict) -> None:
     cache = Path(config.get("cache_root", "/data/cache")).resolve()
     cache.mkdir(parents=True, exist_ok=True)
     os.environ.update(HF_HUB_OFFLINE="1", TRANSFORMERS_OFFLINE="1", HF_HOME=str(cache / "huggingface"),
+                      HF_HUB_CACHE=str(cache / "huggingface" / "hub"),
                       HF_MODULES_CACHE=str(cache / "huggingface" / "modules"))
 
 

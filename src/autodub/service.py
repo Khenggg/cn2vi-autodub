@@ -47,7 +47,7 @@ class Service:
         episode["artifacts"] = self.db.rows("SELECT id,kind,bytes FROM artifact WHERE episode_id=?", (identifier,))
         return episode
 
-    ACTIVE_STATES = {"PREPARING", "ASR", "ALIGNING", "TRANSLATING", "SEPARATING", "TTS",
+    ACTIVE_STATES = {"V1_RUNNING", "PREPARING", "ASR", "ALIGNING", "TRANSLATING", "SEPARATING", "TTS",
                      "TIMING", "AUDIO_MIX", "QC", "OCR_VERIFY", "TEXT_REMOVAL", "SUBTITLE_RENDER", "ENCODING"}
 
     def episode_segments(self, identifier: str) -> list[dict]:
@@ -73,12 +73,14 @@ class Service:
                 existing[contract.id] = (row["id"], contract)
             if len(segments) != len(existing) or {s.id for s in segments} != set(existing):
                 raise ValueError("Keep the same segment IDs without additions or removals")
-            previous_end = 0
+            previous_ends = {}
             for segment in segments:
+                track = segment.track_id or "legacy"
+                previous_end = previous_ends.get(track, 0)
                 if (episode["duration_ms"] is None or segment.start_ms < previous_end
                         or segment.end_ms > episode["duration_ms"]):
                     raise ValueError("Segments must be ordered and remain within the source timeline")
-                previous_end = segment.end_ms
+                previous_ends[track] = segment.end_ms
                 previous_word = segment.start_ms
                 for word in segment.words:
                     if not word.t.strip() or word.s < previous_word:

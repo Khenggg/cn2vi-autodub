@@ -420,7 +420,62 @@ class Pipeline:
             raise ValueError("Separated vocal stem changed the source timeline")
         return vocals
 
+    def _run_v1(self, episode: dict, metadata: dict, should_stop=None) -> bool:
+        from autodub.v1_pipeline import RunDrained, V1Pipeline
+        ep_id = episode["id"]
+        source = safe_path(self.settings.data_dir, episode["source_path"])
+        if sha256_file(source) != episode["source_sha256"]:
+            return self._fail(ep_id, "SOURCE_CHECKSUM_MISMATCH", "Source checksum differs")
+        reference = self.settings.voice_reference.resolve()
+        memory_path = self.settings.data_dir / "app-state" / "series-context" / f"{episode['series_id']}.json"
+        config = {**self._runner_config(), "duration_ms": metadata["duration_ms"],
+                  "pipeline_version": "CN2VI-V1", "run_kind": "COLD_PROCESS",
+                  "cloud_rate": self.settings.cloud_rate, "voice_reference": str(reference),
+                  "voice_reference_sha256": sha256_file(reference) if reference.is_file() else None,
+                  "subtitle_mode": self._subtitle_mode_for_episode(episode),
+                  "series_memory": json.loads(memory_path.read_text()) if memory_path.is_file() else {},
+                  "glossary": {row["zh"]: row["vi"] for row in self.db.rows(
+                      "SELECT zh,vi FROM glossary_entry WHERE series_id=? AND locked_by_user=1", (episode["series_id"],))}}
+        config["interpreters"] = {name: str(self.settings.venvs_dir / name / "bin/python")
+                                  for name in ("core", "asr", "separation", "diarization", "punctuation", "indextts", "vision")}
+        root = self.settings.data_dir / "work" / ep_id / "v1-runs"
+        engine = V1Pipeline(source, root, config, Path(__file__).resolve().parents[2],
+            notify=lambda stage, result: self.db.event(ep_id, "V1_RUNNING", stage,
+                {"stage": stage, "completed": result is not None}),
+            should_stop=should_stop or self.stop_requested.is_set)
+        self.runner = engine.runner
+        self.db.transition(ep_id, "V1_RUNNING", "CN2VI V1: phiên bản thử nghiệm cố định", progress=0.06)
+        try:
+            report = engine.execute()
+        except RunDrained:
+            self._register_artifact(ep_id, "checkpoint", engine.checkpoint)
+            self.db.transition(ep_id, "CHECKPOINTED", "Đã lưu ranh giới stage V1; có thể tiếp tục cùng phiên bản",
+                               next_stage="V1_RUNNING", queue_requested=1)
+            return False
+        for kind, path in (("run_report", engine.run.root / "run-report.json"),
+                           ("run_report_md", engine.run.root / "run-report.md"),
+                           ("checkpoint", engine.checkpoint),
+                           ("preview_video", engine.run.root / "preview.mp4"),
+                           ("character_context", engine.run.root / "character-context.json")):
+            if path.is_file():
+                self._register_artifact(ep_id, kind, path)
+        if report.get("output_video"):
+            self._register_artifact(ep_id, "final_video", Path(report["output_video"]))
+        for issue in report["issues"]:
+            self.db.execute("INSERT INTO issue VALUES(?,?,?,?,?,?,?)",
+                (uuid.uuid4().hex, ep_id, issue.get("segment_id"), issue["code"], "warning", json.dumps(issue), 0))
+        from autodub.storage import atomic_json
+        atomic_json(memory_path, json.loads((engine.run.root / "series-memory.json").read_text()))
+        translated = engine.completed.get("TRANSLATION", {}).get("result", {}).get("segments", [])
+        if translated:
+            self._save_segments_to_db(ep_id, [Segment.model_validate(s) for s in translated])
+        target = "COMPLETED" if report["status"] == "SUCCESS" else "NEEDS_REVIEW"
+        self.db.transition(ep_id, target, "Video và báo cáo thử nghiệm V1 đã lưu", progress=1, queue_requested=0)
+        return target == "COMPLETED"
+
     def run(self, episode: dict, metadata: dict, should_stop=None) -> bool:
+        if self.settings.pipeline_generation == "v1":
+            return self._run_v1(episode, metadata, should_stop)
         ep_id = episode["id"]
         source = safe_path(self.settings.data_dir, episode["source_path"])
         if sha256_file(source) != episode.get("source_sha256"):

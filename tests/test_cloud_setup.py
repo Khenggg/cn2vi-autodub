@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import json
 import os
 import shlex
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -52,10 +54,19 @@ def _fake_project(tmp_path: Path, platform: str) -> tuple[Path, Path, Path, Path
     project.joinpath("scripts").mkdir()
     project.joinpath("config").mkdir()
     repo = SCRIPT.parent.parent
-    project.joinpath("config", "cloud-runtime.json").write_text(
-        repo.joinpath("config", "cloud-runtime.json").read_text(encoding="utf-8"), encoding="utf-8")
+    fixture_runtime = json.dumps({
+        "schema_version": 1,
+        "profiles": ["asr", "tts", "vision", "separation"],
+        "assets": [
+            "whisper-asr", "alignment-en", "alignment-zh", "vieneu-turbo",
+            "moss-torch", "lama-onnx", "rapidocr-v6", "roformer", "nltk-tokenizers"
+        ],
+        "validation": "PENDING_FRESH_CLOUD_INSTALL_AND_MODEL_TESTS"
+    }, indent=2)
+    project.joinpath("config", "cloud-runtime.json").write_text(fixture_runtime, encoding="utf-8")
     project.joinpath("scripts", "cloud_plan.py").write_text(
         repo.joinpath("scripts", "cloud_plan.py").read_text(encoding="utf-8"), encoding="utf-8")
+
     project.joinpath("benchmarks", "models.lock.json").write_text(
         repo.joinpath("benchmarks", "models.lock.json").read_text(encoding="utf-8"), encoding="utf-8")
     os_release = project / "test-os-release"
@@ -215,3 +226,98 @@ def test_host_gate_runs_before_bootstrap_and_model_downloads(tmp_path: Path, she
     contents = journal.read_text(encoding="utf-8")
     assert "failed_step=host_preflight" in contents
     assert "run_status=ASSETS_VERIFIED" not in contents
+
+
+def test_cloud_plan_supports_diarization_punctuation_indextts_and_explicit_profiles(tmp_path: Path) -> None:
+    repo = SCRIPT.parent.parent
+    project = tmp_path / "project"
+    project.joinpath("config").mkdir(parents=True)
+    project.joinpath("scripts").mkdir()
+    project.joinpath("benchmarks").mkdir()
+    fixture_runtime = json.dumps({
+        "schema_version": 1,
+        "profiles": ["asr", "tts", "vision", "separation"],
+        "assets": [
+            "whisper-asr", "alignment-en", "alignment-zh", "vieneu-turbo",
+            "moss-torch", "lama-onnx", "rapidocr-v6", "roformer", "nltk-tokenizers"
+        ],
+        "validation": "PENDING_FRESH_CLOUD_INSTALL_AND_MODEL_TESTS"
+    }, indent=2)
+    project.joinpath("config", "cloud-runtime.json").write_text(fixture_runtime, encoding="utf-8")
+    project.joinpath("scripts", "cloud_plan.py").write_text(
+        repo.joinpath("scripts", "cloud_plan.py").read_text(encoding="utf-8"), encoding="utf-8")
+    project.joinpath("benchmarks", "models.lock.json").write_text(
+        repo.joinpath("benchmarks", "models.lock.json").read_text(encoding="utf-8"), encoding="utf-8")
+
+
+    plan_py = project / "scripts" / "cloud_plan.py"
+
+    # Test default profiles
+    result = subprocess.run([sys.executable, str(plan_py), "--project", str(project), "--field", "profiles"],
+                            capture_output=True, text=True, check=True)
+    assert result.stdout.strip().splitlines() == ["asr", "tts", "vision", "separation"]
+
+    # Test explicit profiles with upcoming profiles: diarization, punctuation, indextts
+    result = subprocess.run([sys.executable, str(plan_py), "--project", str(project),
+                             "--field", "profiles", "--profiles", "diarization,punctuation,indextts"],
+                            capture_output=True, text=True, check=True)
+    assert result.stdout.strip().splitlines() == ["diarization", "punctuation", "indextts"]
+
+    # Test explicit single profile
+    result = subprocess.run([sys.executable, str(plan_py), "--project", str(project),
+                             "--field", "profiles", "--profile", "diarization"],
+                            capture_output=True, text=True, check=True)
+    assert result.stdout.strip().splitlines() == ["diarization"]
+
+    # Test invalid profile rejected
+    invalid_result = subprocess.run([sys.executable, str(plan_py), "--project", str(project),
+                                     "--field", "profiles", "--profile", "invalid/profile"],
+                                    capture_output=True, text=True, check=False)
+    assert invalid_result.returncode != 0
+
+
+def test_dry_run_with_explicit_profiles(tmp_path: Path, shell_platform: str) -> None:
+    project, data, venv, call_log, host_log, fake_bin = _fake_project(tmp_path, shell_platform)
+    journal = data / "results" / "dry-run-profiles.log"
+    result = _run_setup(project, data, venv, call_log, host_log, fake_bin, journal,
+                        shell_platform, "--dry-run", "--profiles", "asr,tts")
+
+    assert result.returncode == 0
+    assert "DRY RUN" in result.stdout
+    assert "Run --require-cloud preflight profiles: asr tts" in result.stdout
+    assert "vision" not in result.stdout
+    assert not journal.exists()
+
+
+def test_journal_records_readiness_distinct_from_inference_quality(tmp_path: Path, shell_platform: str) -> None:
+    project, data, venv, call_log, host_log, fake_bin = _fake_project(tmp_path, shell_platform)
+    journal = data / "results" / "journal-check.log"
+    result = _run_setup(project, data, venv, call_log, host_log, fake_bin, journal, shell_platform)
+    assert result.returncode == 0, result.stderr
+    contents = journal.read_text(encoding="utf-8")
+    assert "run_status=ASSETS_VERIFIED" in contents
+    assert "inference_quality=UNVERIFIED" in contents
+    assert "model inference and video quality remain unverified" in result.stdout
+
+
+def test_verify_startup_option_runs_and_journals_startup_verified(tmp_path: Path, shell_platform: str) -> None:
+    project, data, venv, call_log, host_log, fake_bin = _fake_project(tmp_path, shell_platform)
+    start_web = project / "scripts" / "start_web.sh"
+    start_web.write_text("""#!/usr/bin/env bash
+if [[ "${1:-}" == "start" ]]; then
+  printf 'started\\n' >> "$START_WEB_LOG"
+  exit 0
+elif [[ "${1:-}" == "status" ]]; then
+  exit 0
+fi
+exit 0
+""", encoding="utf-8")
+    start_web.chmod(0o755)
+    journal = data / "results" / "startup-verified.log"
+    result = _run_setup(project, data, venv, call_log, host_log, fake_bin, journal,
+                        shell_platform, "--verify-startup")
+    assert result.returncode == 0, result.stderr
+    contents = journal.read_text(encoding="utf-8")
+    assert "step=verify_startup status=PASS" in contents
+    assert "run_status=STARTUP_VERIFIED" in contents
+    assert "inference_quality=UNVERIFIED" in contents

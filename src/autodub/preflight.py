@@ -26,7 +26,7 @@ MIN_GPU_FREE_MIB = 1_800
 EXPECTED_TORCH = "2.8.0"
 EXPECTED_TORCHAUDIO = "2.8.0"
 EXPECTED_CUDA = "12.8"
-PROFILES = ("asr", "tts", "vision", "bandit", "separation")
+PROFILES = ("asr", "tts", "vision", "bandit", "separation", "diarization", "punctuation", "indextts")
 
 
 def _check(name: str, status: str, detail: str, **values: Any) -> dict[str, Any]:
@@ -220,7 +220,7 @@ def _disk_check(name: str, path: Path, strict: bool) -> dict[str, Any]:
 
 def run_preflight(*, profile: str | None = None, require_cloud: bool = False,
                   models_root: Path = Path("/data/models"), cache_root: Path = Path("/data/cache"),
-                  model_manifest: Path | None = None) -> dict[str, Any]:
+                  model_manifest: Path | None = None, torch_for_vision: bool = False) -> dict[str, Any]:
     """Collect environment diagnostics. This function does not install or download anything."""
     strict = require_cloud
     checks: list[dict[str, Any]] = []
@@ -257,20 +257,25 @@ def run_preflight(*, profile: str | None = None, require_cloud: bool = False,
                              minimum_bytes=MIN_RAM_BYTES))
     checks.extend((_disk_check("models_disk", models_root, strict), _disk_check("cache_disk", cache_root, strict)))
 
-    if profile == "vision":
+    if profile == "vision" and not torch_for_vision:
         torch_info = {"torch": None, "torchaudio": None, "cuda_runtime": None, "device": None,
                       "capability": None, "arch_list": [], "not_required": True}
         checks.append(_onnx_cpu_check(strict))
     else:
         torch_checks, torch_info = _torch_checks(strict)
         checks.extend(torch_checks)
+        if profile == "vision":
+            checks.append(_onnx_cpu_check(strict))
     if profile:
         required_distributions = {
-            "asr": ("faster-whisper", "whisperx", "ctranslate2"),
+            "asr": ("kaldi-native-fbank", "kaldiio", "transformers"),
             "tts": ("transformers",),
             "vision": (),
             "bandit": (),
-            "separation": ("audio-separator", "onnxruntime-gpu"),
+            "separation": ("soundfile",),
+            "diarization": ("pyannote.audio", "torchcodec"),
+            "punctuation": ("transformers",),
+            "indextts": ("transformers", "audioread", "descript-audiotools", "modelscope"),
         }[profile]
         for package in required_distributions:
             try:
@@ -313,10 +318,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--models-root", type=Path, default=Path("/data/models"))
     parser.add_argument("--cache-root", type=Path, default=Path("/data/cache"))
     parser.add_argument("--model-manifest", type=Path)
+    parser.add_argument("--torch-for-vision", action="store_true")
     args = parser.parse_args(argv)
     report = run_preflight(profile=args.profile, require_cloud=args.require_cloud,
                            models_root=args.models_root, cache_root=args.cache_root,
-                           model_manifest=args.model_manifest)
+                           model_manifest=args.model_manifest, torch_for_vision=args.torch_for_vision)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
     print(f"Preflight {report['readiness']}: {report['summary']['passed']} passed, "

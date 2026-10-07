@@ -25,7 +25,7 @@ class Scheduler:
 
     def start(self):
         with self.db.lock:
-            active_states = ("PREPARING", "ASR", "ALIGNING", "TRANSLATING", "SEPARATING",
+            active_states = ("V1_RUNNING", "PREPARING", "ASR", "ALIGNING", "TRANSLATING", "SEPARATING",
                              "TTS", "TIMING", "AUDIO_MIX", "QC", "PREVIEW_READY",
                              "AWAITING_ROI", "OCR_VERIFY", "TEXT_REMOVAL", "SUBTITLE_RENDER", "ENCODING")
             marks = ",".join("?" for _ in active_states)
@@ -35,6 +35,12 @@ class Scheduler:
                     source = safe_path(self.settings.data_dir, row["source_path"])
                     if sha256_file(source) != row["source_sha256"]:
                         raise CheckpointError("Source checksum mismatch")
+                    if row["status"] == "V1_RUNNING":
+                        self.db.transition(row["id"], "CHECKPOINTED", "Interrupted V1 run recovered",
+                                           next_stage="V1_RUNNING", queue_requested=row["queue_requested"])
+                        if row["queue_requested"]:
+                            self.db.transition(row["id"], "QUEUED", "Resume frozen V1 checkpoint", queue_requested=1)
+                        continue
                     checkpoint_path = self.settings.data_dir / "checkpoints" / row["id"] / "state.json"
                     if row["status"] == "PREPARING" and not checkpoint_path.is_file():
                         # Media probing had not produced a durable checkpoint. Requeue

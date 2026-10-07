@@ -12,6 +12,7 @@ import time
 import urllib.error
 import urllib.request
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from autodub.storage import atomic_json, safe_path, sha256_file
 
@@ -20,6 +21,14 @@ HTTP_DOWNLOAD_ATTEMPTS = 3
 HTTP_RETRY_BACKOFF_SECONDS = (0.1, 0.2)
 HTTP_COPY_CHUNK_BYTES = 1024 * 1024
 UNKNOWN_ASSET_SIZE_ESTIMATE = 256 * 1024**2
+
+
+class _PrivateRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, request, fp, code, msg, headers, newurl):
+        redirected = super().redirect_request(request, fp, code, msg, headers, newurl)
+        if redirected is not None and urlsplit(newurl).netloc != urlsplit(request.full_url).netloc:
+            redirected.remove_header("Authorization")
+        return redirected
 
 
 def manifest_digest(files: list[dict]) -> str:
@@ -148,6 +157,14 @@ def _download_http_asset(url: str, temporary: Path, root: Path, specification: d
 
     for attempt in range(HTTP_DOWNLOAD_ATTEMPTS):
         request_headers = {"User-Agent": "CN2VI-AutoDub/0.1"}
+        private = specification.get("auth") == "huggingface"
+        if private:
+            if urlsplit(url).hostname != "huggingface.co" or urlsplit(url).scheme != "https":
+                raise ValueError("Private model authentication requires the official HTTPS host")
+            token = os.environ.get("HF_TOKEN", "").strip()
+            if not token:
+                raise ValueError("HF_TOKEN and Community-1 access are required for this asset")
+            request_headers["Authorization"] = "Bearer " + token
         if offset:
             request_headers["Range"] = f"bytes={offset}-"
         try:
@@ -155,7 +172,8 @@ def _download_http_asset(url: str, temporary: Path, root: Path, specification: d
         except (TypeError, ValueError):
             raise ValueError("Invalid HTTP model asset URL") from None
         try:
-            response = urllib.request.urlopen(request, timeout=HTTP_DOWNLOAD_TIMEOUT)
+            open_request = urllib.request.build_opener(_PrivateRedirect()).open if private else urllib.request.urlopen
+            response = open_request(request, timeout=HTTP_DOWNLOAD_TIMEOUT)
         except urllib.error.HTTPError as error:
             status = error.code
             error.close()

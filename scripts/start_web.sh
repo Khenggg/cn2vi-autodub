@@ -15,6 +15,15 @@ export MODELS_DIR="${MODELS_DIR:-${DATA_DIR}/models}"
 export VENVS_DIR="${VENVS_DIR:-${AUTODUB_VENV_ROOT:-/opt/autodub/venvs}}"
 umask 077
 
+# Read only the supported credential assignment; never execute the file as shell code.
+if [[ -f "${DATA_DIR}/run/translation.env" && -z "${DEEPSEEK_API_KEY:-}" ]]; then
+  while IFS= read -r credential_line || [[ -n "$credential_line" ]]; do
+    case "$credential_line" in
+      DEEPSEEK_API_KEY=*) export DEEPSEEK_API_KEY="${credential_line#DEEPSEEK_API_KEY=}" ;;
+    esac
+  done < "${DATA_DIR}/run/translation.env"
+fi
+
 mkdir -p "${DATA_DIR}/run" "${DATA_DIR}/logs"
 
 start_server() {
@@ -41,7 +50,7 @@ start_server() {
     cd "${REPO_DIR}"
     # CTranslate2/ONNX use the pinned CUDA libraries from these isolated environments.
     local cuda_dirs=""
-    for env_name in asr separation tts; do
+    for env_name in asr separation indextts diarization vision; do
         for library_dir in "$VENVS_DIR/$env_name"/lib/python3.12/site-packages/nvidia/*/lib; do
             if [[ -d "$library_dir" ]]; then cuda_dirs="${cuda_dirs:+$cuda_dirs:}$library_dir"; fi
         done

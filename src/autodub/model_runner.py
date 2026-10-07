@@ -14,6 +14,9 @@ from pathlib import Path
 from typing import Any
 
 _INTERPRETER_STAGE = {
+    "V1_SEPARATION": "separation", "V1_DIARIZATION": "diarization", "V1_ASR": "asr",
+    "V1_PUNCTUATION": "punctuation", "V1_OCR": "vision", "V1_TRANSLATION": "core",
+    "V1_TTS": "indextts", "V1_MIX": "separation", "V1_INPAINT": "vision",
     "ASR": "asr",
     "ALIGNING": "asr",
     "TRANSLATING": "translation",
@@ -88,7 +91,7 @@ class ModelRunner:
                                                "source": str(source), "config": job_config},
                                               ensure_ascii=False), encoding="utf-8")
             env = {key: os.environ[key] for key in _SAFE_ENV if key in os.environ}
-            package_root = str(Path(__file__).resolve().parent.parent)
+            package_root = str(Path(self.config.get("package_root", Path(__file__).resolve().parent.parent)).resolve(strict=True))
             env["PYTHONPATH"] = package_root + (os.pathsep + os.environ["PYTHONPATH"]
                                                   if os.environ.get("PYTHONPATH") else "")
             env["PYTHONIOENCODING"] = "utf-8"
