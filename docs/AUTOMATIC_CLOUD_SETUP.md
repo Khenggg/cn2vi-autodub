@@ -1,48 +1,62 @@
-# Cài cloud từ GitHub
+# Cài cloud từ repo đang phát triển
 
-Luồng chính lấy mã nguồn trực tiếp từ repository GitHub public `Khenggg/cn2vi-autodub`, rồi chạy `scripts/cloud_setup.sh`. Setup cài môi trường, tải và kiểm tra model assets đã pin, rồi chạy preflight. Nó không tạo hoặc tắt máy cloud, cài NVIDIA driver, chạy benchmark hay gọi API dịch.
+Luồng mặc định clone GitHub, đọc `config/cloud-runtime.json`, dựng virtualenv từ dependency lock, tải đúng model trong `benchmarks/models.lock.json` rồi xác minh checksum. Không tự tải backup Drive, không phục hồi venv của máy cũ và không tự chạy video.
 
-## 1. Clone repository
+## Lấy đúng nhánh
 
-Host chỉ cần kết nối Internet và Git. Repository ở chế độ public nên có thể clone trực tiếp mà không cần đăng nhập:
+Bản sửa đang ở nhánh `codex/pipeline-hardening` trong PR #1, chưa merge vào main. Trên máy Ubuntu mới có GPU NVIDIA được nhà cung cấp cấp sẵn:
 
 ```bash
-git clone https://github.com/Khenggg/cn2vi-autodub.git
+# Chạy với root; nếu là user thường, thêm sudo trước apt-get.
+apt-get update
+apt-get install -y --no-install-recommends ca-certificates git python3
+git clone --branch codex/pipeline-hardening https://github.com/Khenggg/cn2vi-autodub.git
 cd cn2vi-autodub
-```
-
-## 2. Kiểm tra rồi chạy setup
-
-Host cần Ubuntu 24.04 x86_64, driver NVIDIA đã cài và hoạt động (`nvidia-smi`), GPU có ít nhất 15,000 MiB VRAM và tối thiểu 100 GB thập phân còn trống trên filesystem dữ liệu. Cấu hình tham chiếu là RTX 5060 Ti 16 GB, RAM 28 GB. Có quyền root hoặc `sudo` để cài gói hệ thống. Setup không cài/nâng cấp driver hoặc yêu cầu reboot.
-
-Xem kế hoạch trước; `--dry-run` không chạy apt, tải assets, tạo environment hay sửa dữ liệu:
-
-```bash
+git rev-parse HEAD
 bash scripts/cloud_setup.sh --dry-run
+bash scripts/cloud_setup.sh --check-host
 ```
 
-Khi sẵn sàng, chạy:
+Host hỗ trợ Ubuntu 22.04/24.04 x86_64, NVIDIA driver hoạt động, GPU tổng VRAM >=11,500 MiB, RAM >=15 GB thập phân và disk trống >=100 GB. Đây là ngưỡng chuẩn bị môi trường cho RTX 3060 12 GB; hiệu năng, chất lượng và mức VRAM inference chưa xác nhận trên bộ model mới. Python 3.12 và Node/npm pin được setup tự cài. Không cần Docker để chạy luồng virtualenv này; setup không cài/nâng cấp driver hay reboot.
+
+## Cài đặt
+
+Chỉ cài công cụ, môi trường và frontend trước, chưa tải model weights:
+
+```bash
+bash scripts/cloud_setup.sh --prepare-only
+```
+
+Cài đầy đủ từ repo, không dùng Drive:
 
 ```bash
 bash scripts/cloud_setup.sh
 ```
 
-Có thể đổi nơi lưu data và virtualenv bằng biến môi trường:
+`setup_new_server.sh` là alias của cùng luồng, không còn quy tắc tải model riêng. Có thể đổi nơi lưu bằng `AUTODUB_DATA_ROOT=/data AUTODUB_VENV_ROOT=/opt/autodub/venvs`. Journal có mốc bắt đầu/kết thúc mỗi bước ở `/data/results/cloud-setup-*.log`. Lỗi dừng setup và ghi rõ bước lỗi; không báo thành công giả. Chạy lại sẽ kiểm tra/reuse model đúng checksum và dùng cache package.
+
+## Bộ model được chọn
+
+| Bước | Bộ cài mặc định |
+|---|---|
+| ASR | Faster-Whisper large-v3-turbo, tự phát hiện ngôn ngữ |
+| Căn thời gian | WhisperX + weights căn tiếng Anh/Trung được pin |
+| Tách âm | Kim_Vocal_2 (MDX-Net), package audio-separator trong venv `separation` |
+| TTS | VieNeu v3 Turbo + MOSS codec |
+| Phụ đề | RapidOCR + LaMa |
+
+Qwen ASR/Aligner, BandIt và ProPainter vẫn có entries benchmark cũ trong lock nhưng không thuộc danh sách cài mặc định. Các ngôn ngữ ngoài Anh/Trung cần thêm weights `alignment-<language>` đã pin vào lock và plan; nếu thiếu, pipeline giữ transcript để review, không tải model trôi nổi trong lúc inference và không giả lập word timestamps.
+
+ASR mới và bộ tách âm dùng môi trường riêng vì cần NumPy 2; TTS/vision vẫn giữ dependency của chúng. Cấu hình dịch DeepSeek đang có trong code được giữ; không gọi API trong setup. Dịch local và lựa chọn provider là bước cấu hình riêng, không thể coi ASR mới là model dịch.
+
+## Xác minh rồi khởi động
+
+`ENVIRONMENT_READY` chỉ xác nhận môi trường; `ASSETS_VERIFIED` xác nhận thêm model files. Cả hai không chứng minh model inference hoặc phim thật đã qua test. Sau khi thuê cloud, cần chạy tests và smoke model ngắn trước khi dùng phim dài. Không tự bật dịch vụ sau setup. Launcher mặc định tắt pipeline để chuẩn bị/review; chỉ đặt `ENABLE_PIPELINE=true` sau khi smoke model trên cloud đã qua:
 
 ```bash
-AUTODUB_DATA_ROOT=/data \
-AUTODUB_VENV_ROOT=/opt/autodub/venvs \
-bash scripts/cloud_setup.sh
+AUTODUB_DATA_ROOT=/data AUTODUB_VENV_ROOT=/opt/autodub/venvs bash scripts/start_web.sh start
 ```
 
-Setup cài core cùng các profile ASR, TTS, vision và Bandit; tải rồi xác minh assets từ các nguồn đã khóa; sau đó chạy preflight bắt buộc cho bốn profile. Cần Internet và dung lượng đáng kể. Node.js 24.14.1 được cài vào cache dưới `AUTODUB_DATA_ROOT`; không thay thế Node 18 đang có trên hệ thống. Cấu hình frontend hỗ trợ tự động, không cần tự cài Node/npm toàn hệ thống.
+Web bind `127.0.0.1:8080`; truy cập qua SSH tunnel. Admin token ở `/data/run/admin_token.txt` với quyền 0600; không đưa token/key vào Git. File `.env` không tự được launcher đọc: export biến từ cấu hình riêng đã bảo vệ trước khi start. `MODELS_DIR` và `VENVS_DIR` được launcher suy ra từ data/venv root.
 
-Mặc định data/models/cache/reports ở `/data`; virtualenv ở `/opt/autodub/venvs`. Checkout Git nằm tại thư mục clone. Setup giữ dữ liệu hiện có, có thể chạy lại, không tải hoặc gửi video/media hay venv/cache từ máy phát triển. Model files được tải trực tiếp trên host. Setup thành công báo `READY`; journal nằm dưới `/data/results/cloud-setup-<run>.log`, preflight reports tại `/data/results/preflight-<profile>.json` (theo data root đã cấu hình).
-
-## 3. Bước benchmark sau setup
-
-`READY` xác nhận host và môi trường qua preflight, không xác nhận chất lượng model. Tạo plan, chạy dry-run rồi benchmark theo [cloud runbook](CLOUD_RUNBOOK.md). Giai đoạn này chưa cần video hoặc API key. Benchmark đại diện cần video/corpus có quyền sử dụng. Nếu sau đó chọn provider DashScope, cấu hình `DASHSCOPE_API_KEY` an toàn trên host và chọn rõ `QWEN_TRANSLATION_MODEL`; không đưa key vào URL, command line, repository hay report.
-
-## Ngoại tuyến
-
-Nếu host không thể clone GitHub, có thể dùng file `.run` tự chứa làm fallback offline. Gói bằng `scripts/package_cloud.ps1`, chuyển file thủ công rồi chạy `bash cn2vi-cloud-setup.run`; xem [runbook cài đặt tự động](CLOUD_RUNBOOK.md). SHA-256 sidecar chỉ kiểm tra lỗi truyền file, không phải chữ ký xác thực nhà phát hành.
+Drive restore vẫn là thao tác riêng bằng `cloud_restore.sh`, chỉ dùng khi chủ động cần lấy dữ liệu cũ. Không chạy restore cùng luồng cài mới.

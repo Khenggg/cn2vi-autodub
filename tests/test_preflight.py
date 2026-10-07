@@ -73,6 +73,7 @@ def setup_cloud_env(monkeypatch, *, total_mib=16_384, free_mib=8_000, arch_list=
     monkeypatch.setitem(sys.modules, "torch", fake_torch)
     def version(package):
         return {"torchaudio": "2.8.0+cu128", "transformers": "4.57.6",
+                "faster-whisper": "1.2.1", "whisperx": "3.8.6", "ctranslate2": "4.7.0",
                 "diffusers": "0.35.2"}[package]
     monkeypatch.setattr(preflight.importlib.metadata, "version", version)
 
@@ -180,3 +181,15 @@ def test_vision_profile_checks_onnx_cpu_without_torch(monkeypatch, tmp_path):
     assert check(report, "onnxruntime_cpu")["status"] == "PASS"
     assert not any(item["name"] == "torch" for item in report["checks"])
     assert report["environment"]["torch"]["not_required"] is True
+
+
+def test_ubuntu22_rtx3060_does_not_require_blackwell_kernels(monkeypatch, tmp_path):
+    setup_cloud_env(monkeypatch, total_mib=12_288)
+    monkeypatch.setattr(preflight, "_os_release", lambda: {
+        "ID": "ubuntu", "VERSION_ID": "22.04", "PRETTY_NAME": "Ubuntu 22.04"})
+    monkeypatch.setattr(preflight.psutil, "virtual_memory", lambda: SimpleNamespace(total=16_000_000_000))
+    sys.modules["torch"].cuda.get_device_capability = lambda _device: (8, 6)
+    report = preflight.run_preflight(profile="asr", require_cloud=True,
+                                     models_root=tmp_path, cache_root=tmp_path)
+    assert report["readiness"] == "READY"
+    assert check(report, "blackwell_sm_120")["status"] == "PASS"

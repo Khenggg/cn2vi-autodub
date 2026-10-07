@@ -349,7 +349,8 @@ class Pipeline:
             "interpreters": {
                 "asr": str(v / "asr" / "bin" / "python"),
                 "translation": str(v / "translation" / "bin" / "python") if (v / "translation" / "bin" / "python").exists() else None,
-                "bandit": str(v / "bandit" / "bin" / "python"),
+                "bandit": str(v / "separation" / "bin" / "python"),
+                "separation": str(v / "separation" / "bin" / "python"),
                 "tts": str(v / "tts" / "bin" / "python"),
                 "vision": str(v / "vision" / "bin" / "python"),
             },
@@ -426,7 +427,7 @@ class Pipeline:
             # Stage 1: ASR (5% -> 15%)
             # ---------------------------------------------------------
             self.db.transition(
-                ep_id, "ASR", "Đang nhận diện giọng nói tiếng Trung (Qwen3-ASR)",
+                ep_id, "ASR", "Đang nhận diện giọng nói và phát hiện ngôn ngữ (Faster-Whisper)",
                 progress=0.10, next_stage="ALIGNING",
             )
             asr_res = self._run_stage("ASR", source, {"output_dir": str(work_dir / "asr")})
@@ -434,12 +435,19 @@ class Pipeline:
             self._register_artifact(ep_id, "transcript", transcript_path)
             transcript_data = json.loads(transcript_path.read_text(encoding="utf-8"))
             segments = [Segment.model_validate(s) for s in transcript_data["segments"]]
+            if not segments:
+                with self.db.lock:
+                    self.db.transition(ep_id, "NEEDS_REVIEW", "Không nhận diện được lời thoại; cần kiểm tra nguồn âm thanh",
+                                       next_stage="ASR", queue_requested=0)
+                    self.db.event(ep_id, "NEEDS_REVIEW", "ASR returned no transcript segments",
+                                  {"language": transcript_data.get("language")})
+                return False
 
             # ---------------------------------------------------------
             # Stage 2: ALIGNING (15% -> 25%)
             # ---------------------------------------------------------
             self.db.transition(
-                ep_id, "ALIGNING", "Đang căn chỉnh thời gian từng từ (Qwen3-ForcedAligner)",
+                ep_id, "ALIGNING", "Đang căn chỉnh thời gian từng từ theo ngôn ngữ (WhisperX)",
                 progress=0.20, next_stage="TRANSLATING",
             )
             had_alignment_checkpoint = "ALIGNING" in self._checkpoint.get("completed_stages", [])
@@ -458,6 +466,15 @@ class Pipeline:
             ]
             if not had_alignment_checkpoint:
                 self._save_segments_to_db(ep_id, segments)
+            if align_data.get("alignment_status") == "UNSUPPORTED_LANGUAGE_NO_WORD_TIMES":
+                required_asset = align_data.get("required_asset")
+                with self.db.lock:
+                    self.db.transition(ep_id, "NEEDS_REVIEW",
+                                       f"Thiếu model căn chỉnh thời gian cho ngôn ngữ {align_data.get('language') or 'không xác định'}",
+                                       next_stage="ALIGNING", queue_requested=0)
+                    self.db.event(ep_id, "NEEDS_REVIEW", "Pinned language aligner is unavailable",
+                                  {"language": align_data.get("language"), "required_asset": required_asset})
+                return False
 
             # ---------------------------------------------------------
             # Stage 3: TRANSLATING (25% -> 45%)
@@ -515,8 +532,7 @@ class Pipeline:
             # ---------------------------------------------------------
             # Stage 4: SEPARATING (45% -> 65%)
             # ---------------------------------------------------------
-            from autodub.adapters.roformer import is_roformer_available
-            sep_label = "Mel-RoFormer Kim_Vocal_2" if is_roformer_available() else "BandIt ERB48"
+            sep_label = "Kim_Vocal_2 (MDX-Net)"
             dub_segments = [s for s in segments if s.action == "DUB" and s.dub_vi.strip()]
             if not dub_segments:
                 return self._passthrough_audio(ep_id, episode, source, work_dir, duration_ms)

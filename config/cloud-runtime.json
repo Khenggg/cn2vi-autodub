@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "asr": "faster-whisper-large-v3-turbo",
+  "alignment": "whisperx",
+  "alignment_languages": [
+    "en",
+    "zh"
+  ],
+  "separation": "Kim_Vocal_2.onnx",
+  "profiles": [
+    "asr",
+    "tts",
+    "vision",
+    "separation"
+  ],
+  "assets": [
+    "whisper-asr",
+    "alignment-en",
+    "alignment-zh",
+    "vieneu-turbo",
+    "moss-torch",
+    "lama-onnx",
+    "rapidocr-v6",
+    "roformer"
+  ],
+  "validation": "PENDING_FRESH_CLOUD_INSTALL_AND_MODEL_TESTS"
+}

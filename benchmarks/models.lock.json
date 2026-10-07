@@ -468,6 +468,158 @@
           "git_blob_sha1": "0aa0ce0658d60ac4a5d609f4eadb0e8e43514176"
         }
       ]
+    },
+    {
+      "id": "whisper-asr",
+      "kind": "huggingface",
+      "repo": "mobiuslabsgmbh/faster-whisper-large-v3-turbo",
+      "revision": "0a363e9161cbc7ed1431c9597a8ceaf0c4f78fcf",
+      "files": [
+        {
+          "path": "config.json",
+          "bytes": 2263,
+          "url": "https://huggingface.co/mobiuslabsgmbh/faster-whisper-large-v3-turbo/resolve/0a363e9161cbc7ed1431c9597a8ceaf0c4f78fcf/config.json",
+          "git_blob_sha1": "0351d1d6870005e865747b781b5d7c23ea0459cd"
+        },
+        {
+          "path": "model.bin",
+          "bytes": 1617884929,
+          "url": "https://huggingface.co/mobiuslabsgmbh/faster-whisper-large-v3-turbo/resolve/0a363e9161cbc7ed1431c9597a8ceaf0c4f78fcf/model.bin",
+          "sha256": "e76620f83d5f5b69efd3d87e3dc180c1bd21df9fbebacfd4335e5e1efcc018da"
+        },
+        {
+          "path": "preprocessor_config.json",
+          "bytes": 340,
+          "url": "https://huggingface.co/mobiuslabsgmbh/faster-whisper-large-v3-turbo/resolve/0a363e9161cbc7ed1431c9597a8ceaf0c4f78fcf/preprocessor_config.json",
+          "git_blob_sha1": "931c77a740890c46365c7ae0c9d350ba3cca908f"
+        },
+        {
+          "path": "tokenizer.json",
+          "bytes": 2710337,
+          "url": "https://huggingface.co/mobiuslabsgmbh/faster-whisper-large-v3-turbo/resolve/0a363e9161cbc7ed1431c9597a8ceaf0c4f78fcf/tokenizer.json",
+          "git_blob_sha1": "17456db595adc78a973f97d69d8cb50bc87c0b1c"
+        },
+        {
+          "path": "vocabulary.json",
+          "bytes": 1068114,
+          "url": "https://huggingface.co/mobiuslabsgmbh/faster-whisper-large-v3-turbo/resolve/0a363e9161cbc7ed1431c9597a8ceaf0c4f78fcf/vocabulary.json",
+          "git_blob_sha1": "0adcd01e7c237205d593b707e66dd5d7bc785d2d"
+        }
+      ]
+    },
+    {
+      "id": "alignment-en",
+      "kind": "huggingface",
+      "repo": "facebook/wav2vec2-base-960h",
+      "revision": "22aad52d435eb6dbaf354bdad9b0da84ce7d6156",
+      "files": [
+        {
+          "path": "config.json",
+          "bytes": 1596,
+          "url": "https://huggingface.co/facebook/wav2vec2-base-960h/resolve/22aad52d435eb6dbaf354bdad9b0da84ce7d6156/config.json",
+          "git_blob_sha1": "8ca9cc7496e145e37d09cec17d0c3bf9b8523c8e"
+        },
+        {
+          "path": "model.safetensors",
+          "bytes": 377607901,
+          "url": "https://huggingface.co/facebook/wav2vec2-base-960h/resolve/22aad52d435eb6dbaf354bdad9b0da84ce7d6156/model.safetensors",
+          "sha256": "8aa76ab2243c81747a1f832954586bc566090c83a0ac167df6f31f0fa917d74a"
+        },
+        {
+          "path": "preprocessor_config.json",
+          "bytes": 159,
+          "url": "https://huggingface.co/facebook/wav2vec2-base-960h/resolve/22aad52d435eb6dbaf354bdad9b0da84ce7d6156/preprocessor_config.json",
+          "git_blob_sha1": "3f24dc078fcba55ee1d417a413847ead40c093a3"
+        },
+        {
+          "path": "special_tokens_map.json",
+          "bytes": 85,
+          "url": "https://huggingface.co/facebook/wav2vec2-base-960h/resolve/22aad52d435eb6dbaf354bdad9b0da84ce7d6156/special_tokens_map.json",
+          "git_blob_sha1": "25bc39604f72700b3b8e10bd69bb2f227157edd1"
+        },
+        {
+          "path": "tokenizer_config.json",
+          "bytes": 163,
+          "url": "https://huggingface.co/facebook/wav2vec2-base-960h/resolve/22aad52d435eb6dbaf354bdad9b0da84ce7d6156/tokenizer_config.json",
+          "git_blob_sha1": "978a15a96dbb2d23e2afbc70137cae6c5ce38c8d"
+        },
+        {
+          "path": "vocab.json",
+          "bytes": 291,
+          "url": "https://huggingface.co/facebook/wav2vec2-base-960h/resolve/22aad52d435eb6dbaf354bdad9b0da84ce7d6156/vocab.json",
+          "git_blob_sha1": "88181b954aa14df68be9b444b3c36585f3078c0a"
+        }
+      ]
+    },
+    {
+      "id": "alignment-zh",
+      "kind": "huggingface",
+      "repo": "jonatasgrosman/wav2vec2-large-xlsr-53-chinese-zh-cn",
+      "revision": "99ccb2737be22b8bb50dcfcc39ad4d567fb90cfd",
+      "files": [
+        {
+          "path": "config.json",
+          "bytes": 1567,
+          "url": "https://huggingface.co/jonatasgrosman/wav2vec2-large-xlsr-53-chinese-zh-cn/resolve/99ccb2737be22b8bb50dcfcc39ad4d567fb90cfd/config.json",
+          "git_blob_sha1": "4f7143f7712623888c22adffeca380cef645124c"
+        },
+        {
+          "path": "preprocessor_config.json",
+          "bytes": 158,
+          "url": "https://huggingface.co/jonatasgrosman/wav2vec2-large-xlsr-53-chinese-zh-cn/resolve/99ccb2737be22b8bb50dcfcc39ad4d567fb90cfd/preprocessor_config.json",
+          "git_blob_sha1": "0886a48276922a77013d8aa4681192138ae90d90"
+        },
+        {
+          "path": "pytorch_model.bin",
+          "bytes": 1276296151,
+          "url": "https://huggingface.co/jonatasgrosman/wav2vec2-large-xlsr-53-chinese-zh-cn/resolve/99ccb2737be22b8bb50dcfcc39ad4d567fb90cfd/pytorch_model.bin",
+          "sha256": "de031fd4b29e0c0667e5346450fadfe1326c89936b888b59c4ede608db763ee4"
+        },
+        {
+          "path": "special_tokens_map.json",
+          "bytes": 85,
+          "url": "https://huggingface.co/jonatasgrosman/wav2vec2-large-xlsr-53-chinese-zh-cn/resolve/99ccb2737be22b8bb50dcfcc39ad4d567fb90cfd/special_tokens_map.json",
+          "git_blob_sha1": "25bc39604f72700b3b8e10bd69bb2f227157edd1"
+        },
+        {
+          "path": "vocab.json",
+          "bytes": 44357,
+          "url": "https://huggingface.co/jonatasgrosman/wav2vec2-large-xlsr-53-chinese-zh-cn/resolve/99ccb2737be22b8bb50dcfcc39ad4d567fb90cfd/vocab.json",
+          "git_blob_sha1": "da3e3b635068f5a44c273636b36f0153f964d8bb"
+        }
+      ]
+    },
+    {
+      "id": "roformer",
+      "kind": "http",
+      "repo": "https://github.com/TRvlvr/model_repo",
+      "revision": "sha256:ce74ef3b6a6024ce44211a07be9cf8bc6d87728cc852a68ab34eb8e58cde9c8b:uvr:3826b05b570dbd4fbedbc807758803b35348ba1b",
+      "files": [
+        {
+          "path": "Kim_Vocal_2.onnx",
+          "bytes": 66759214,
+          "url": "https://github.com/TRvlvr/model_repo/releases/download/all_public_uvr_models/Kim_Vocal_2.onnx",
+          "sha256": "ce74ef3b6a6024ce44211a07be9cf8bc6d87728cc852a68ab34eb8e58cde9c8b"
+        },
+        {
+          "path": "download_checks.json",
+          "url": "https://raw.githubusercontent.com/TRvlvr/application_data/3826b05b570dbd4fbedbc807758803b35348ba1b/filelists/download_checks.json",
+          "bytes": 28267,
+          "sha256": "d3622e1fa19c161d3cf704927711b453d593a3f1eb0f2e0838c3136907935151"
+        },
+        {
+          "path": "vr_model_data.json",
+          "url": "https://raw.githubusercontent.com/TRvlvr/application_data/3826b05b570dbd4fbedbc807758803b35348ba1b/vr_model_data/model_data_new.json",
+          "bytes": 4380,
+          "sha256": "6a2021b9aa355c10f845b68c73944d47bd9e1fdf37b8a584b14ce8f88b09bb2f"
+        },
+        {
+          "path": "mdx_model_data.json",
+          "url": "https://raw.githubusercontent.com/TRvlvr/application_data/3826b05b570dbd4fbedbc807758803b35348ba1b/mdx_model_data/model_data_new.json",
+          "bytes": 15358,
+          "sha256": "1aca8f9bcc57233bc714029663a9ec2345d9c7721f91e5e08f46392a879c6a9a"
+        }
+      ]
     }
   ]
 }

@@ -39,6 +39,8 @@ def test_roformer_run_mocked(tmp_path):
     inst.touch()
 
     with patch("autodub.adapters.roformer.is_roformer_available", return_value=True), \
+         patch("autodub.adapters.roformer.asset", return_value=(tmp_path, {
+             "id": "roformer", "model_revision": "test", "weights_sha256": "test"})), \
          patch("autodub.adapters.roformer.probe_media", return_value={"duration_ms": 60000}), \
          patch("autodub.adapters.roformer.extract_audio"), \
          patch("autodub.adapters.roformer._run_with_audio_separator", return_value=(vocals, inst)):

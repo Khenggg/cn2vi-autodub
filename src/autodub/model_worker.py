@@ -103,10 +103,10 @@ def _run_separating(source: Path, config: dict) -> dict:
 
 def run_stage(stage: str, source: Path, config: dict) -> dict:
     if stage == "ASR":
-        from autodub.adapters.qwen import run_asr
+        from autodub.adapters.whisper import run_asr
         return run_asr(source, config)
     if stage == "ALIGNING":
-        from autodub.adapters.qwen import run_alignment
+        from autodub.adapters.whisper import run_alignment
         return run_alignment(source, config)
     if stage == "TRANSLATING":
         from autodub.adapters.local_translation import run

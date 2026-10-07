@@ -50,7 +50,14 @@ def _fake_project(tmp_path: Path, platform: str) -> tuple[Path, Path, Path, Path
     venv = tmp_path / "venvs"
     project.joinpath("benchmarks").mkdir(parents=True)
     project.joinpath("scripts").mkdir()
-    project.joinpath("benchmarks", "models.lock.json").write_text("{}\n", encoding="utf-8")
+    project.joinpath("config").mkdir()
+    repo = SCRIPT.parent.parent
+    project.joinpath("config", "cloud-runtime.json").write_text(
+        repo.joinpath("config", "cloud-runtime.json").read_text(encoding="utf-8"), encoding="utf-8")
+    project.joinpath("scripts", "cloud_plan.py").write_text(
+        repo.joinpath("scripts", "cloud_plan.py").read_text(encoding="utf-8"), encoding="utf-8")
+    project.joinpath("benchmarks", "models.lock.json").write_text(
+        repo.joinpath("benchmarks", "models.lock.json").read_text(encoding="utf-8"), encoding="utf-8")
     os_release = project / "test-os-release"
     os_release.write_text('ID=ubuntu\nVERSION_ID="24.04"\n', encoding="utf-8")
     fixture_script = SCRIPT.read_text(encoding="utf-8").replace(
@@ -105,7 +112,7 @@ if [[ "$1 $2" == "-m autodub.preflight" ]]; then
 fi
 exit 0
 """
-    for environment in ("core", "asr", "tts", "vision", "bandit"):
+    for environment in ("core", "asr", "tts", "vision", "separation"):
         executable = venv / environment / "bin" / "python"
         executable.parent.mkdir(parents=True)
         executable.write_text(fake_python, encoding="utf-8")
@@ -143,8 +150,8 @@ def test_dry_run_only_prints_plan_and_never_calls_bootstrap(tmp_path: Path, shel
 
     assert result.returncode == 0
     assert "DRY RUN" in result.stdout
-    assert "qwen-asr" in result.stdout and "propainter-weights" in result.stdout
-    assert "asr tts vision bandit" in result.stdout
+    assert "whisper-asr" in result.stdout and "roformer" in result.stdout
+    assert "asr tts vision separation" in result.stdout
     assert "moss-onnx" not in result.stdout and "vieneu-turbo-onnx" not in result.stdout
     assert not call_log.exists()
     assert not host_log.exists()
@@ -159,7 +166,7 @@ def test_success_runs_all_steps_and_rerun_reaches_ready_again(tmp_path: Path, sh
         result = _run_setup(project, data, venv, call_log, host_log, fake_bin, journal, shell_platform)
         assert result.returncode == 0, result.stderr
         contents = journal.read_text(encoding="utf-8")
-        assert "run_status=READY" in contents
+        assert "run_status=ASSETS_VERIFIED" in contents
         assert "status=PASS" in contents
     calls = call_log.read_text(encoding="utf-8").splitlines()
     assert (project.parent / "bootstrap.log").read_text(encoding="utf-8").splitlines() == ["called", "called"]
@@ -169,7 +176,7 @@ def test_success_runs_all_steps_and_rerun_reaches_ready_again(tmp_path: Path, sh
     assert sum(line == "-m autodub.model_assets fetch" or line.startswith("-m autodub.model_assets fetch ")
                for line in calls) == 2
     assert sum(line.startswith("-m autodub.model_assets verify ") for line in calls) == 2
-    for profile in ("asr", "tts", "vision", "bandit"):
+    for profile in ("asr", "tts", "vision", "separation"):
         assert sum(f"--profile {profile}" in line for line in calls) == 2
     assert "--model-manifest" in next(line for line in calls if "--profile asr" in line)
 
@@ -187,10 +194,10 @@ def test_failed_preflight_preserves_exit_code_and_stops_later_profiles(
     contents = journal.read_text(encoding="utf-8")
     assert "run_status=BLOCKED" in contents
     assert "failed_step=preflight_vision" in contents
-    assert "run_status=READY" not in contents
+    assert "run_status=ASSETS_VERIFIED" not in contents
     calls = call_log.read_text(encoding="utf-8").splitlines()
     assert any("--profile vision" in line for line in calls)
-    assert not any("--profile bandit" in line for line in calls)
+    assert not any("--profile separation" in line for line in calls)
     assert not (project.parent / "dangerous-commands.log").exists()
 
 
@@ -207,4 +214,4 @@ def test_host_gate_runs_before_bootstrap_and_model_downloads(tmp_path: Path, she
     assert not (project.parent / "dangerous-commands.log").exists()
     contents = journal.read_text(encoding="utf-8")
     assert "failed_step=host_preflight" in contents
-    assert "run_status=READY" not in contents
+    assert "run_status=ASSETS_VERIFIED" not in contents

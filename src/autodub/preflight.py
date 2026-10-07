@@ -19,14 +19,14 @@ except ImportError:  # Keep local diagnostics useful in a partially installed ch
     psutil = None
 
 
-MIN_RAM_BYTES = 28_000_000_000
+MIN_RAM_BYTES = 15_000_000_000
 MIN_DISK_BYTES = 100_000_000_000
-MIN_GPU_TOTAL_MIB = 15_000
+MIN_GPU_TOTAL_MIB = 11_500
 MIN_GPU_FREE_MIB = 1_800
 EXPECTED_TORCH = "2.8.0"
 EXPECTED_TORCHAUDIO = "2.8.0"
 EXPECTED_CUDA = "12.8"
-PROFILES = ("asr", "tts", "vision", "bandit")
+PROFILES = ("asr", "tts", "vision", "bandit", "separation")
 
 
 def _check(name: str, status: str, detail: str, **values: Any) -> dict[str, Any]:
@@ -169,10 +169,14 @@ def _torch_checks(strict: bool) -> tuple[list[dict[str, Any]], dict[str, Any]]:
             arch_list = []
         versions["arch_list"] = arch_list
         supports_blackwell = ("sm_120" in arch_list or "compute_120" in arch_list) and capability == (12, 0)
-        checks.append(_check("blackwell_sm_120", _conditional_status(supports_blackwell, strict),
+        # Require Blackwell-specific kernels only on a Blackwell device.
+        architecture_ok = supports_blackwell if capability == (12, 0) else True
+        checks.append(_check("blackwell_sm_120", _conditional_status(architecture_ok, strict),
+                             "CUDA smoke passed on a non-Blackwell GPU" if capability != (12, 0) else
                              "GPU reports compute capability 12.0 and Torch includes sm_120" if supports_blackwell else
                              "GPU capability 12.0 plus Torch sm_120 support are both required",
                              sm_120_supported=supports_blackwell,
+                             not_required=capability != (12, 0),
                              arch_list_available=bool(arch_list)))
     except Exception as error:
         # Exception text may include paths or environment details; report only its type.
@@ -221,9 +225,9 @@ def run_preflight(*, profile: str | None = None, require_cloud: bool = False,
     strict = require_cloud
     checks: list[dict[str, Any]] = []
     os_release = _os_release()
-    os_ok = os_release.get("ID") == "ubuntu" and os_release.get("VERSION_ID") == "24.04"
+    os_ok = os_release.get("ID") == "ubuntu" and os_release.get("VERSION_ID") in {"22.04", "24.04"}
     checks.append(_check("os", _conditional_status(os_ok, strict),
-                         os_release.get("PRETTY_NAME", platform.platform()), expected="Ubuntu 24.04"))
+                         os_release.get("PRETTY_NAME", platform.platform()), expected="Ubuntu 22.04 or 24.04"))
     py_ok = sys.version_info[:2] == (3, 12)
     checks.append(_check("python", _conditional_status(py_ok, strict), platform.python_version(),
                          expected="3.12.x", executable=sys.executable))
@@ -262,10 +266,11 @@ def run_preflight(*, profile: str | None = None, require_cloud: bool = False,
         checks.extend(torch_checks)
     if profile:
         required_distributions = {
-            "asr": ("transformers",),
+            "asr": ("faster-whisper", "whisperx", "ctranslate2"),
             "tts": ("transformers",),
             "vision": (),
             "bandit": (),
+            "separation": ("audio-separator", "onnxruntime-gpu"),
         }[profile]
         for package in required_distributions:
             try:

@@ -4,11 +4,15 @@ set -euo pipefail
 # Scripts to manage the CN2VI AutoDub Web UI server in background
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
-DATA_DIR="${DATA_DIR:-/data}"
+DATA_DIR="${DATA_DIR:-${AUTODUB_DATA_ROOT:-/data}}"
 PID_FILE="${DATA_DIR}/run/web.pid"
 LOG_FILE="${DATA_DIR}/logs/web.log"
 PYTHON_BIN="${AUTODUB_VENV_ROOT:-/opt/autodub/venvs}/core/bin/python"
 export DATA_DIR
+# Keep uploads/review available while fresh-model validation is still pending.
+export ENABLE_PIPELINE="${ENABLE_PIPELINE:-false}"
+export MODELS_DIR="${MODELS_DIR:-${DATA_DIR}/models}"
+export VENVS_DIR="${VENVS_DIR:-${AUTODUB_VENV_ROOT:-/opt/autodub/venvs}}"
 umask 077
 
 mkdir -p "${DATA_DIR}/run" "${DATA_DIR}/logs"
@@ -35,6 +39,14 @@ start_server() {
 
     echo "[INFO] Starting CN2VI AutoDub Web UI..."
     cd "${REPO_DIR}"
+    # CTranslate2/ONNX use the pinned CUDA libraries from these isolated environments.
+    local cuda_dirs=""
+    for env_name in asr separation tts; do
+        for library_dir in "$VENVS_DIR/$env_name"/lib/python3.12/site-packages/nvidia/*/lib; do
+            if [[ -d "$library_dir" ]]; then cuda_dirs="${cuda_dirs:+$cuda_dirs:}$library_dir"; fi
+        done
+    done
+    export LD_LIBRARY_PATH="${cuda_dirs}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
     export PYTHONPATH="${REPO_DIR}/src${PYTHONPATH:+:${PYTHONPATH}}"
     nohup "${PYTHON_BIN}" -m uvicorn autodub.main:create_app --factory \
         --host 127.0.0.1 --port 8080 --workers 1 \
