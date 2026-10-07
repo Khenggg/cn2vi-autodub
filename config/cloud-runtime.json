@@ -21,7 +21,8 @@
     "moss-torch",
     "lama-onnx",
     "rapidocr-v6",
-    "roformer"
+    "roformer",
+    "nltk-tokenizers"
   ],
   "validation": "PENDING_FRESH_CLOUD_INSTALL_AND_MODEL_TESTS"
 }

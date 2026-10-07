@@ -40,7 +40,7 @@ bash scripts/cloud_setup.sh
 | Bước | Bộ cài mặc định |
 |---|---|
 | ASR | Faster-Whisper large-v3-turbo, tự phát hiện ngôn ngữ |
-| Căn thời gian | WhisperX + weights căn tiếng Anh/Trung được pin |
+| Căn thời gian | WhisperX + weights căn tiếng Anh/Trung và tokenizer Punkt được pin |
 | Tách âm | Kim_Vocal_2 (MDX-Net), package audio-separator trong venv `separation` |
 | TTS | VieNeu v3 Turbo + MOSS codec |
 | Phụ đề | RapidOCR + LaMa |

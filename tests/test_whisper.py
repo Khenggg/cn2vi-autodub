@@ -113,6 +113,7 @@ def test_alignment_uses_local_language_asset_and_emits_word_times(tmp_path, monk
     fake_whisperx.load_align_model = load_align_model
     fake_whisperx.load_audio = lambda _path: object()
     fake_whisperx.align = align
+    monkeypatch.setitem(sys.modules, "nltk", SimpleNamespace(data=SimpleNamespace(path=[]), download=None))
     monkeypatch.setitem(sys.modules, "whisperx", fake_whisperx)
     monkeypatch.setattr(whisper, "configure_offline", lambda _config: None)
     monkeypatch.setattr(whisper, "asset", asset)

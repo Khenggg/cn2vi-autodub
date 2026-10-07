@@ -620,6 +620,20 @@
           "sha256": "1aca8f9bcc57233bc714029663a9ec2345d9c7721f91e5e08f46392a879c6a9a"
         }
       ]
+    },
+    {
+      "id": "nltk-tokenizers",
+      "kind": "http",
+      "repo": "https://github.com/nltk/nltk_data",
+      "revision": "550b6625bcef1f2abff2ff770a5a0d272c9c6b2a",
+      "files": [
+        {
+          "path": "punkt_tab.zip",
+          "bytes": 4319076,
+          "sha256": "e57f64187974277726a3417ca6f181ec5403676c717672eef6a748a7b20e0106",
+          "url": "https://raw.githubusercontent.com/nltk/nltk_data/550b6625bcef1f2abff2ff770a5a0d272c9c6b2a/packages/tokenizers/punkt_tab.zip"
+        }
+      ]
     }
   ]
 }

@@ -175,6 +175,8 @@ run_step fetch_assets "$CORE_PYTHON" -m autodub.model_assets fetch --lock "$LOCK
   --root "$AUTODUB_DATA_ROOT/models" --only "${ASSETS[@]}"
 run_step verify_assets "$CORE_PYTHON" -m autodub.model_assets verify --lock "$LOCK_FILE" \
   --root "$AUTODUB_DATA_ROOT/models" --only "${ASSETS[@]}"
+run_step prepare_tokenizers "$CORE_PYTHON" "$PROJECT_ROOT/scripts/cloud_tokenizers.py" \
+  --models-root "$AUTODUB_DATA_ROOT/models" --cache-root "$AUTODUB_DATA_ROOT/cache"
 
 fi
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import re
 import time
 from pathlib import Path
@@ -162,9 +163,16 @@ def run_alignment(source: Path, config: dict) -> dict:
     metrics = {"model_load_ms": 0, "inference_ms": 0}
     output = []
     if segments:
+        import nltk
         import whisperx
 
         configure_offline(config)
+        nltk_dir = Path(config.get("cache_root", "/data/cache")).resolve() / "nltk_data"
+        os.environ["NLTK_DATA"] = str(nltk_dir)
+        nltk.data.path.insert(0, str(nltk_dir))
+        def no_implicit_download(*_args, **_kwargs):
+            raise RuntimeError("Missing pinned tokenizer cache; rerun cloud_setup")
+        nltk.download = no_implicit_download
         device, _ = _device(config)
         cache_dir = Path(config.get("cache_root", "/data/cache")).resolve() / "alignment"
         cache_dir.mkdir(parents=True, exist_ok=True)
