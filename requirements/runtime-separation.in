@@ -1,6 +1,4 @@
--r bench-common.in
-fastapi==0.142.2
-uvicorn==0.54.0
+-r worker-common.in
 torch==2.8.0
 torchaudio==2.8.0
 torchvision==0.23.0
