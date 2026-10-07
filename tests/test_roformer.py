@@ -59,3 +59,30 @@ def test_roformer_run_mocked(tmp_path):
         assert data["windows"][0]["dialogue"] == "vocals.wav"
         assert data["windows"][0]["start_ms"] == 0
         assert data["windows"][0]["end_ms"] == 60000
+
+
+def test_separator_preserves_stem_identity_when_model_name_contains_vocal(tmp_path):
+    import sys
+    from types import ModuleType
+    from unittest.mock import MagicMock
+
+    folder = tmp_path / "out"
+    folder.mkdir()
+    output_names = [
+        "source_(Instrumental)_Kim_Vocal_2.wav",
+        "source_(Vocals)_Kim_Vocal_2.wav",
+    ]
+    (folder / output_names[0]).write_bytes(b"background")
+    (folder / output_names[1]).write_bytes(b"dialogue")
+    separator = MagicMock()
+    separator.separate.return_value = output_names
+    module = ModuleType("audio_separator.separator")
+    module.Separator = MagicMock(return_value=separator)
+
+    with patch.dict(sys.modules, {"audio_separator.separator": module}):
+        vocals, instrumental = roformer._run_with_audio_separator(
+            tmp_path / "source.wav", folder, "Kim_Vocal_2.onnx", model_dir=tmp_path,
+        )
+
+    assert vocals.read_bytes() == b"dialogue"
+    assert instrumental.read_bytes() == b"background"

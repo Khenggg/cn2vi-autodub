@@ -55,9 +55,9 @@ def _run_with_audio_separator(source_wav: Path, folder: Path, model_name: str,
         # Match output files (typically named *(Vocals)* and *(Instrumental)*)
         for out in outputs:
             out_p = folder / out
-            if "vocal" in out.lower():
+            if "(vocals)" in out_p.name.casefold():
                 out_p.replace(vocals_path)
-            elif "inst" in out.lower() or "back" in out.lower():
+            elif "(instrumental)" in out_p.name.casefold():
                 out_p.replace(instrumental_path)
         if vocals_path.exists() and instrumental_path.exists():
             return vocals_path, instrumental_path
