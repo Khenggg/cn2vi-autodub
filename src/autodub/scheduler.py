@@ -25,7 +25,7 @@ class Scheduler:
 
     def start(self):
         with self.db.lock:
-            active_states = ("V1_RUNNING", "PREPARING", "ASR", "ALIGNING", "TRANSLATING", "SEPARATING",
+            active_states = ("V1_RUNNING", "V2_RUNNING", "PREPARING", "ASR", "ALIGNING", "TRANSLATING", "SEPARATING",
                              "TTS", "TIMING", "AUDIO_MIX", "QC", "PREVIEW_READY",
                              "AWAITING_ROI", "OCR_VERIFY", "TEXT_REMOVAL", "SUBTITLE_RENDER", "ENCODING")
             marks = ",".join("?" for _ in active_states)
@@ -35,9 +35,9 @@ class Scheduler:
                     source = safe_path(self.settings.data_dir, row["source_path"])
                     if sha256_file(source) != row["source_sha256"]:
                         raise CheckpointError("Source checksum mismatch")
-                    if row["status"] == "V1_RUNNING":
+                    if row["status"] in {"V1_RUNNING", "V2_RUNNING"}:
                         self.db.transition(row["id"], "CHECKPOINTED", "Interrupted V1 run recovered",
-                                           next_stage="V1_RUNNING", queue_requested=row["queue_requested"])
+                                           next_stage=row["status"], queue_requested=row["queue_requested"])
                         if row["queue_requested"]:
                             self.db.transition(row["id"], "QUEUED", "Resume frozen V1 checkpoint", queue_requested=1)
                         continue
@@ -157,19 +157,20 @@ class Scheduler:
                                        and existing.get("source_sha256") == episode["source_sha256"])
             except (OSError, json.JSONDecodeError):
                 existing_checkpoint = False
+        first_stage = "V2_RUNNING" if self.settings.pipeline_generation == "v2" else "SEPARATING"
         if not existing_checkpoint:
             atomic_json(checkpoint, {"schema_version": 1, "episode_id": episode["id"],
                                     "source_sha256": episode["source_sha256"], "completed_stages": ["PREPARING"],
-                                    "next_stage": "SEPARATING", "media": metadata, "created_at": now_ms()})
+                                    "next_stage": first_stage, "media": metadata, "created_at": now_ms()})
         with self.db.lock:
             self.db.execute("DELETE FROM artifact WHERE episode_id=? AND kind='checkpoint'", (episode["id"],))
             self.db.execute("INSERT INTO artifact VALUES(?,?,?,?,?,?,?)",
                             (uuid.uuid4().hex, episode["id"], "checkpoint",
                              checkpoint.relative_to(self.settings.data_dir).as_posix(), sha256_file(checkpoint),
                              checkpoint.stat().st_size, now_ms()))
-            self.db.transition(episode["id"], "CHECKPOINTED", "Media ready; separation and ASR providers required",
+            self.db.transition(episode["id"], "CHECKPOINTED", "Media ready; recognition and voice-over providers required",
                                duration_ms=metadata["duration_ms"], progress=0.05,
-                               next_stage=existing.get("next_stage", "SEPARATING") if existing_checkpoint else "SEPARATING",
+                               next_stage=existing.get("next_stage", first_stage) if existing_checkpoint else first_stage,
                                queue_requested=1 if self.settings.enable_pipeline else 0)
             self.db.event(episode["id"], "CHECKPOINTED", "Preparation checkpoint saved",
                           {"stage_wall_ms": now_ms() - started, "provider_ready": False})

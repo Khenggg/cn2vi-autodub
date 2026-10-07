@@ -14,6 +14,9 @@ from pathlib import Path
 from typing import Any
 
 _INTERPRETER_STAGE = {
+    "V2_DETECT": "asr", "V2_ASR": "asr", "V2_PUNCTUATION": "asr",
+    "V2_OCR": "vision", "V2_TRANSLATION": "core", "V2_TTS": "tts",
+    "V2_MIX": "asr", "V2_RESTORE": "vision", "V2_ENCODE": "vision",
     "V1_SEPARATION": "separation", "V1_DIARIZATION": "diarization", "V1_ASR": "asr",
     "V1_PUNCTUATION": "punctuation", "V1_OCR": "vision", "V1_TRANSLATION": "core",
     "V1_TTS": "indextts", "V1_MIX": "separation", "V1_INPAINT": "vision",

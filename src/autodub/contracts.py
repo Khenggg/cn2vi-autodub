@@ -71,6 +71,9 @@ class Segment(StrictModel):
     context_provenance: dict[str, str | bool] = Field(default_factory=dict)
     confidence_calibrated: bool = False
     speech_kind: Literal["lexical", "nonverbal", "unknown"] = "unknown"
+    dialogue_kind: Literal["DIALOGUE", "UNSUBTITLED_DIALOGUE", "SINGING_OST", "NONLEXICAL", "AMBIGUOUS"] | None = None
+    timing_source: Literal["NATIVE_WORDS", "VAD_WINDOW", "UNKNOWN"] = "UNKNOWN"
+    dialogue_evidence: dict = Field(default_factory=dict)
     asr_text: str = ""
     action: Literal["DUB", "KEEP", "NEEDS_REVIEW"] = "KEEP"
     confidence: dict[str, float | None] = Field(default_factory=dict)

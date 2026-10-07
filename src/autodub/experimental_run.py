@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import threading
 import time
 import uuid
 from pathlib import Path
@@ -13,7 +14,8 @@ from autodub.storage import atomic_json, sha256_file
 
 STAGES = ("PREPARING", "SEPARATION", "DIARIZATION", "ASR", "PUNCTUATION", "OCR",
           "CONTEXT", "TRANSLATION", "TTS", "AUDIO_MIX", "PREVIEW", "SUBTITLE_DETECTION",
-          "INPAINT", "SUBTITLE_RENDER", "FINAL_ENCODE")
+          "INPAINT", "SUBTITLE_RENDER", "FINAL_ENCODE", "SPEECH_DETECTION", "MULTIMODAL_GATE",
+          "TEMPORAL_RESTORATION")
 STATUSES = {"SUCCESS", "DEGRADED", "FAILED_FATAL", "SKIPPED"}
 
 
@@ -28,6 +30,7 @@ class ExperimentalRun:
         self.root = root / self.id
         self.root.mkdir(parents=True)
         self.started = time.perf_counter()
+        self._report_lock = threading.RLock()
         self.prior_wall = 0.0
         self.config = json.loads(json.dumps(config))
         self.cloud_rate = cloud_rate
@@ -43,13 +46,13 @@ class ExperimentalRun:
         code_hashes = {path.relative_to(snapshot).as_posix(): sha256_file(path)
                        for path in sorted(snapshot.rglob("*")) if path.is_file()}
         self.report = {
-            "schema_version": 1, "run_id": self.id, "pipeline_version": "CN2VI-V1",
+            "schema_version": 1, "run_id": self.id, "pipeline_version": config.get("pipeline_version", "CN2VI-V1"),
             "git_commit": revision(), "git_dirty_at_start": worktree_dirty(),
             "code_snapshot_sha256": fingerprint(code_hashes),
             "model_lock_sha256": sha256_file(snapshot / "benchmarks/models.lock.json"),
             "config_sha256": fingerprint(self.config), "input_sha256": sha256_file(source),
             "source_duration_ms": source_duration_ms, "run_kind": config.get("run_kind", "COLD"),
-            "model_process_policy": "short-lived isolated process per stage; weights reload per stage",
+            "model_process_policy": config.get("model_process_policy", "short-lived isolated process per stage; weights reload per stage"),
             "host_cache_state": "UNVERIFIED",
             "stages": [], "issues": [], "artifacts": [], "status": "RUNNING",
             "automatic_corrections": [], "model_fallbacks": [],
@@ -80,6 +83,7 @@ class ExperimentalRun:
         value.package_root = snapshot / "src"
         value.prior_wall = report.get("active_wall_seconds", 0)
         value.started = time.perf_counter()
+        value._report_lock = threading.RLock()
         value.report["resume_count"] = report.get("resume_count", 0) + 1
         value.report["status"] = "RUNNING"
         value._save()
@@ -193,5 +197,6 @@ class ExperimentalRun:
         return self.report
 
     def _save(self) -> None:
-        self.report["active_wall_seconds"] = self.prior_wall + time.perf_counter() - self.started
-        atomic_json(self.root / "run-report.json", self.report)
+        with self._report_lock:
+            self.report["active_wall_seconds"] = self.prior_wall + time.perf_counter() - self.started
+            atomic_json(self.root / "run-report.json", self.report)

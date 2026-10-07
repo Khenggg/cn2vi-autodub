@@ -18,7 +18,8 @@ def build_context(segments: list[dict], ocr: dict, memory: dict, glossary: dict[
     speaker_map = memory.get("speaker_character_map", {})
     for index, segment in enumerate(segments):
         speaker = segment.get("speaker_id")
-        character = speaker_map.get(speaker)
+        character = (segment.get("character_id") if segment.get("context_provenance", {}).get("human_reviewed")
+                     else speaker_map.get(speaker))
         # Labels are episode-local. Only explicit episode speaker maps supplied by
         # the caller may establish a character; saved series labels are not reused.
         segment["character_id"] = character

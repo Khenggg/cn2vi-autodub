@@ -394,7 +394,7 @@ class Pipeline:
                     (
                         f"{episode_id}:{s.id}", episode_id, s.start_ms, s.end_ms, s.zh_text,
                         s.subtitle_vi, s.dub_vi, None, s.action,
-                        "PENDING",
+                        "APPROVED" if s.context_provenance.get("human_reviewed") else "PENDING",
                         json.dumps(s.model_dump(), ensure_ascii=False),
                     ),
                 )
@@ -421,7 +421,17 @@ class Pipeline:
         return vocals
 
     def _run_v1(self, episode: dict, metadata: dict, should_stop=None) -> bool:
+        return self._run_experiment(episode, metadata, should_stop, generation="v1")
+
+    def _run_v2(self, episode: dict, metadata: dict, should_stop=None) -> bool:
+        return self._run_experiment(episode, metadata, should_stop, generation="v2")
+
+    def _run_experiment(self, episode: dict, metadata: dict, should_stop=None, *, generation: str) -> bool:
         from autodub.v1_pipeline import RunDrained, V1Pipeline
+        from autodub.v2_pipeline import V2Pipeline
+        version = generation.upper()
+        state = f"{version}_RUNNING"
+        engine_type = V2Pipeline if generation == "v2" else V1Pipeline
         ep_id = episode["id"]
         source = safe_path(self.settings.data_dir, episode["source_path"])
         if sha256_file(source) != episode["source_sha256"]:
@@ -429,28 +439,40 @@ class Pipeline:
         reference = self.settings.voice_reference.resolve()
         memory_path = self.settings.data_dir / "app-state" / "series-context" / f"{episode['series_id']}.json"
         config = {**self._runner_config(), "duration_ms": metadata["duration_ms"],
-                  "pipeline_version": "CN2VI-V1", "run_kind": "COLD_PROCESS",
+                  "pipeline_version": f"CN2VI-{version}", "run_kind": "COLD_PROCESS",
                   "cloud_rate": self.settings.cloud_rate, "voice_reference": str(reference),
                   "voice_reference_sha256": sha256_file(reference) if reference.is_file() else None,
                   "subtitle_mode": self._subtitle_mode_for_episode(episode),
                   "series_memory": json.loads(memory_path.read_text()) if memory_path.is_file() else {},
                   "glossary": {row["zh"]: row["vi"] for row in self.db.rows(
                       "SELECT zh,vi FROM glossary_entry WHERE series_id=? AND locked_by_user=1", (episode["series_id"],))}}
-        config["interpreters"] = {name: str(self.settings.venvs_dir / name / "bin/python")
-                                  for name in ("core", "asr", "separation", "diarization", "punctuation", "indextts", "vision")}
-        root = self.settings.data_dir / "work" / ep_id / "v1-runs"
-        engine = V1Pipeline(source, root, config, Path(__file__).resolve().parents[2],
-            notify=lambda stage, result: self.db.event(ep_id, "V1_RUNNING", stage,
+        profiles = ("core", "asr", "tts", "vision") if generation == "v2" else (
+            "core", "asr", "separation", "diarization", "punctuation", "indextts", "vision")
+        config["interpreters"] = {name: str(self.settings.venvs_dir / name / "bin/python") for name in profiles}
+        if generation == "v2":
+            from autodub.credentials import deepseek_key
+            key = deepseek_key(self.settings.deepseek_key_file)
+            if key:
+                os.environ["DEEPSEEK_API_KEY"] = key
+            config.update(source_sha256=episode["source_sha256"],
+                          subtitle_profile=config["series_memory"].get("subtitle_profile", {}),
+                          translation_model="deepseek-flash", asr_batch_size=4, tts_batch_size=8,
+                          ocr_require_cuda=True, model_process_policy="One resident model per batched stage; GPU compute serialized, CPU/API lanes concurrent")
+            config["approved_segments"] = [json.loads(row["contract_json"]) for row in self.db.rows(
+                "SELECT contract_json FROM segment WHERE episode_id=? AND status='APPROVED' ORDER BY start_ms,id", (ep_id,))]
+        root = self.settings.data_dir / "work" / ep_id / f"{generation}-runs"
+        engine = engine_type(source, root, config, Path(__file__).resolve().parents[2],
+            notify=lambda stage, result: self.db.event(ep_id, state, stage,
                 {"stage": stage, "completed": result is not None}),
             should_stop=should_stop or self.stop_requested.is_set)
         self.runner = engine.runner
-        self.db.transition(ep_id, "V1_RUNNING", "CN2VI V1: phiên bản thử nghiệm cố định", progress=0.06)
+        self.db.transition(ep_id, state, f"CN2VI {version}: phiên bản thử nghiệm cố định", progress=0.06)
         try:
             report = engine.execute()
         except RunDrained:
             self._register_artifact(ep_id, "checkpoint", engine.checkpoint)
-            self.db.transition(ep_id, "CHECKPOINTED", "Đã lưu ranh giới stage V1; có thể tiếp tục cùng phiên bản",
-                               next_stage="V1_RUNNING", queue_requested=1)
+            self.db.transition(ep_id, "CHECKPOINTED", f"Đã lưu ranh giới stage {version}; có thể tiếp tục cùng phiên bản",
+                               next_stage=state, queue_requested=1)
             return False
         for kind, path in (("run_report", engine.run.root / "run-report.json"),
                            ("run_report_md", engine.run.root / "run-report.md"),
@@ -467,15 +489,23 @@ class Pipeline:
         from autodub.storage import atomic_json
         atomic_json(memory_path, json.loads((engine.run.root / "series-memory.json").read_text()))
         translated = engine.completed.get("TRANSLATION", {}).get("result", {}).get("segments", [])
+        if not translated and generation == "v2":
+            gate_path = engine.run.root / "dialogue-gate.json"
+            if gate_path.is_file():
+                translated = json.loads(gate_path.read_text(encoding="utf-8")).get("segments", [])
         if translated:
             self._save_segments_to_db(ep_id, [Segment.model_validate(s) for s in translated])
         target = "COMPLETED" if report["status"] == "SUCCESS" else "NEEDS_REVIEW"
-        self.db.transition(ep_id, target, "Video và báo cáo thử nghiệm V1 đã lưu", progress=1, queue_requested=0)
+        self.db.transition(ep_id, target, f"Video và báo cáo thử nghiệm {version} đã lưu", progress=1, queue_requested=0)
         return target == "COMPLETED"
 
     def run(self, episode: dict, metadata: dict, should_stop=None) -> bool:
+        if self.settings.pipeline_generation == "v2":
+            return self._run_v2(episode, metadata, should_stop)
         if self.settings.pipeline_generation == "v1":
             return self._run_v1(episode, metadata, should_stop)
+        if self.settings.pipeline_generation != "legacy":
+            raise ValueError("Unknown pipeline generation; no automatic fallback")
         ep_id = episode["id"]
         source = safe_path(self.settings.data_dir, episode["source_path"])
         if sha256_file(source) != episode.get("source_sha256"):

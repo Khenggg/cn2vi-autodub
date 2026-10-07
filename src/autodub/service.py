@@ -47,7 +47,7 @@ class Service:
         episode["artifacts"] = self.db.rows("SELECT id,kind,bytes FROM artifact WHERE episode_id=?", (identifier,))
         return episode
 
-    ACTIVE_STATES = {"V1_RUNNING", "PREPARING", "ASR", "ALIGNING", "TRANSLATING", "SEPARATING", "TTS",
+    ACTIVE_STATES = {"V1_RUNNING", "V2_RUNNING", "PREPARING", "ASR", "ALIGNING", "TRANSLATING", "SEPARATING", "TTS",
                      "TIMING", "AUDIO_MIX", "QC", "OCR_VERIFY", "TEXT_REMOVAL", "SUBTITLE_RENDER", "ENCODING"}
 
     def episode_segments(self, identifier: str) -> list[dict]:
@@ -88,10 +88,16 @@ class Service:
                     previous_word = word.e
                 if segment.action not in {"DUB", "KEEP"} or segment.needs_review:
                     raise ValueError("Choose DUB or KEEP and approve each reviewed line")
-                if segment.action == "DUB" and (not segment.words or not segment.dub_vi.strip()):
-                    raise ValueError("DUB requires timed source words and Vietnamese dialogue")
                 db_id, original = existing[segment.id]
+                candidate_timing = self.settings.pipeline_generation == "v2" and original.timing_source == "VAD_WINDOW"
+                if segment.action == "DUB" and ((not segment.words and not candidate_timing) or not segment.dub_vi.strip()):
+                    raise ValueError("DUB requires timed source words and Vietnamese dialogue")
+                if self.settings.pipeline_generation == "v2" and segment.voice_id not in {None, "Ngọc Huyền"}:
+                    raise ValueError("V2 uses the fixed Ngọc Huyền voice")
+                segment.timing_source = original.timing_source
                 segment.confidence = original.confidence
+                if self.settings.pipeline_generation == "v2":
+                    segment.context_provenance = {**segment.context_provenance, "human_reviewed": True}
                 connection.execute(
                     "UPDATE segment SET start_ms=?,end_ms=?,zh_text=?,subtitle_vi=?,dub_vi=?,confidence=?,action=?,status=?,contract_json=? WHERE episode_id=? AND id=?",
                     (segment.start_ms, segment.end_ms, segment.zh_text, segment.subtitle_vi, segment.dub_vi,

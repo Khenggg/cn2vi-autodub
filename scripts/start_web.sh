@@ -28,14 +28,20 @@ fi
 mkdir -p "${DATA_DIR}/run" "${DATA_DIR}/logs"
 
 start_server() {
-    if [[ "${ENABLE_PIPELINE}" == true && "${PIPELINE_GENERATION:-v1}" == v1 ]]; then
+    if [[ "${ENABLE_PIPELINE}" == true && "${PIPELINE_GENERATION:-v2}" =~ ^v[12]$ ]]; then
         export VOICE_REFERENCE="${VOICE_REFERENCE:-${DATA_DIR}/voices/ngoc-huyen.wav}"
         if [[ ! -r "$VOICE_REFERENCE" ]]; then
             echo "[ERROR] Fixed Ngọc Huyền reference is missing: $VOICE_REFERENCE" >&2
             return 1
         fi
+        export PYTHONPATH="${REPO_DIR}/src${PYTHONPATH:+:${PYTHONPATH}}"
+        export DEEPSEEK_KEY_FILE="${DEEPSEEK_KEY_FILE:-${REPO_DIR}/docs/API.txt.txt}"
+        if [[ -z "${DEEPSEEK_API_KEY:-}" && -r "$DEEPSEEK_KEY_FILE" ]]; then
+            DEEPSEEK_API_KEY="$("${PYTHON_BIN}" -c 'from pathlib import Path; import sys; from autodub.credentials import deepseek_key; print(deepseek_key(Path(sys.argv[1])))' "$DEEPSEEK_KEY_FILE")"
+            export DEEPSEEK_API_KEY
+        fi
         if [[ -z "${DEEPSEEK_API_KEY:-}" ]]; then
-            echo "[ERROR] Create ${DATA_DIR}/run/translation.env with DEEPSEEK_API_KEY before enabling V1 processing." >&2
+            echo "[ERROR] Create ${DATA_DIR}/run/translation.env or docs/API.txt.txt before enabling processing." >&2
             return 1
         fi
     fi
@@ -62,7 +68,7 @@ start_server() {
     cd "${REPO_DIR}"
     # CTranslate2/ONNX use the pinned CUDA libraries from these isolated environments.
     local cuda_dirs=""
-    for env_name in asr separation indextts diarization vision; do
+    for env_name in asr tts vision; do
         for library_dir in "$VENVS_DIR/$env_name"/lib/python3.12/site-packages/nvidia/*/lib; do
             if [[ -d "$library_dir" ]]; then cuda_dirs="${cuda_dirs:+$cuda_dirs:}$library_dir"; fi
         done

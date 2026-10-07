@@ -205,6 +205,29 @@ def _onnx_cpu_check(strict: bool) -> dict[str, Any]:
                   available_providers=providers)
 
 
+def _onnx_cuda_check(strict: bool) -> dict[str, Any]:
+    try:
+        import onnxruntime as ort
+        if hasattr(ort, "preload_dlls"):
+            ort.preload_dlls(directory="")
+        providers = list(ort.get_available_providers())
+    except Exception as error:
+        return _check("onnxruntime_cuda", _conditional_status(False, strict),
+                      f"CUDA provider unavailable ({type(error).__name__})")
+    return _check("onnxruntime_cuda", _conditional_status("CUDAExecutionProvider" in providers, strict),
+                  "CUDA provider must also pass the model-session smoke check", available_providers=providers,
+                  runtime_session_verified=False)
+
+
+def _voiceover_filters(ffmpeg_path: str | None, strict: bool) -> dict[str, Any]:
+    result = _run([ffmpeg_path, "-hide_banner", "-filters"]) if ffmpeg_path else None
+    names = {"acrossover", "sidechaincompress", "amix", "alimiter", "atempo"}
+    available = {line.split()[1] for line in result.stdout.splitlines() if len(line.split()) >= 2} if result else set()
+    missing = sorted(names - available)
+    return _check("ffmpeg_voiceover_dsp", _conditional_status(not missing, strict),
+                  "Multi-band DSP filters available" if not missing else "Required DSP filters missing", missing=missing)
+
+
 def _disk_check(name: str, path: Path, strict: bool) -> dict[str, Any]:
     probe = path
     while not probe.exists() and probe != probe.parent:
@@ -220,7 +243,8 @@ def _disk_check(name: str, path: Path, strict: bool) -> dict[str, Any]:
 
 def run_preflight(*, profile: str | None = None, require_cloud: bool = False,
                   models_root: Path = Path("/data/models"), cache_root: Path = Path("/data/cache"),
-                  model_manifest: Path | None = None, torch_for_vision: bool = False) -> dict[str, Any]:
+                  model_manifest: Path | None = None, torch_for_vision: bool = False,
+                  onnx_cuda: bool = False, voiceover: bool = False) -> dict[str, Any]:
     """Collect environment diagnostics. This function does not install or download anything."""
     strict = require_cloud
     checks: list[dict[str, Any]] = []
@@ -235,6 +259,8 @@ def run_preflight(*, profile: str | None = None, require_cloud: bool = False,
     ffmpeg, ffmpeg_path = _command_check("ffmpeg", "ffmpeg", ["-version"], strict=strict)
     ffprobe, _ = _command_check("ffprobe", "ffprobe", ["-version"], strict=strict)
     checks.extend((ffmpeg, ffprobe, _ffmpeg_features(ffmpeg_path, strict), _nvenc_probe(ffmpeg_path, strict)))
+    if voiceover:
+        checks.append(_voiceover_filters(ffmpeg_path, strict))
 
     gpu_check, gpu = _gpu_info(strict)
     checks.append(gpu_check)
@@ -260,12 +286,12 @@ def run_preflight(*, profile: str | None = None, require_cloud: bool = False,
     if profile == "vision" and not torch_for_vision:
         torch_info = {"torch": None, "torchaudio": None, "cuda_runtime": None, "device": None,
                       "capability": None, "arch_list": [], "not_required": True}
-        checks.append(_onnx_cpu_check(strict))
+        checks.append(_onnx_cuda_check(strict) if onnx_cuda else _onnx_cpu_check(strict))
     else:
         torch_checks, torch_info = _torch_checks(strict)
         checks.extend(torch_checks)
         if profile == "vision":
-            checks.append(_onnx_cpu_check(strict))
+            checks.append(_onnx_cuda_check(strict) if onnx_cuda else _onnx_cpu_check(strict))
     if profile:
         required_distributions = {
             "asr": ("kaldi-native-fbank", "kaldiio", "transformers"),
@@ -319,10 +345,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--cache-root", type=Path, default=Path("/data/cache"))
     parser.add_argument("--model-manifest", type=Path)
     parser.add_argument("--torch-for-vision", action="store_true")
+    parser.add_argument("--onnx-cuda", action="store_true")
+    parser.add_argument("--voiceover", action="store_true")
     args = parser.parse_args(argv)
     report = run_preflight(profile=args.profile, require_cloud=args.require_cloud,
                            models_root=args.models_root, cache_root=args.cache_root,
-                           model_manifest=args.model_manifest, torch_for_vision=args.torch_for_vision)
+                           model_manifest=args.model_manifest, torch_for_vision=args.torch_for_vision,
+                           onnx_cuda=args.onnx_cuda, voiceover=args.voiceover)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
     print(f"Preflight {report['readiness']}: {report['summary']['passed']} passed, "

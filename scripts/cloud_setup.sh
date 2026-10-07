@@ -215,6 +215,8 @@ if [[ ${#PROFILES[@]} -eq 0 || ${#ASSETS[@]} -eq 0 ]]; then
   mapfile -t PROFILES <<< "$PROFILE_LIST"
 fi
 
+PIPELINE_VERSION="$("$CORE_PYTHON" "$PROJECT_ROOT/scripts/cloud_plan.py" "${PLAN_ARGS[@]}" --field pipeline_version)"
+
 if ((PREPARE_ONLY == 0)); then
   if [[ " ${ASSETS[*]} " == *" pyannote-community-1 "* && -z "${HF_TOKEN:-}" ]]; then
     printf 'cloud_setup: Community-1 requires Hugging Face access. Accept the model terms at https://huggingface.co/pyannote/speaker-diarization-community-1 and export HF_TOKEN on this cloud host.\n' >&2
@@ -224,6 +226,15 @@ if ((PREPARE_ONLY == 0)); then
     --root "$AUTODUB_DATA_ROOT/models" --only "${ASSETS[@]}"
   run_step verify_assets "$CORE_PYTHON" -m autodub.model_assets verify --lock "$LOCK_FILE" \
     --root "$AUTODUB_DATA_ROOT/models" --only "${ASSETS[@]}"
+  if [[ " ${ASSETS[*]} " == *" ngoc-huyen-reference "* ]]; then
+    voice_source="$AUTODUB_DATA_ROOT/models/ngoc-huyen-reference/reference.wav"
+    voice_target="$AUTODUB_DATA_ROOT/voices/ngoc-huyen.wav"
+    if [[ -f "$voice_target" ]] && ! cmp -s "$voice_source" "$voice_target"; then
+      printf 'cloud_setup: existing Ngọc Huyền reference differs; preserve it and resolve the voice configuration.\n' >&2
+      exit 69
+    fi
+    run_step prepare_fixed_voice install -m 0644 "$voice_source" "$voice_target"
+  fi
   if [[ " ${ASSETS[*]} " == *" nltk-tokenizers "* ]]; then
     run_step prepare_tokenizers "$CORE_PYTHON" "$PROJECT_ROOT/scripts/cloud_tokenizers.py" \
       --models-root "$AUTODUB_DATA_ROOT/models" --cache-root "$AUTODUB_DATA_ROOT/cache"
@@ -238,6 +249,10 @@ for profile in "${PROFILES[@]}"; do
   report="$AUTODUB_DATA_ROOT/results/preflight-$profile.json"
   args=(--require-cloud --profile "$profile" --models-root "$AUTODUB_DATA_ROOT/models" \
     --cache-root "$AUTODUB_DATA_ROOT/cache" --output "$report")
+  if [[ "$PIPELINE_VERSION" == CN2VI-V2 ]]; then
+    args+=(--voiceover)
+    if [[ "$profile" == vision ]]; then args+=(--onnx-cuda); fi
+  fi
   if [[ "$profile" == vision && " ${ASSETS[*]} " == *" propainter-code "* ]]; then
     args+=(--torch-for-vision)
   fi
@@ -249,7 +264,10 @@ for profile in "${PROFILES[@]}"; do
     fi
   fi
   run_step "preflight_$profile" "$AUTODUB_VENV_ROOT/$profile/bin/python" -m autodub.preflight "${args[@]}"
-  if ((PREPARE_ONLY == 0)) && [[ " ${ASSETS[*]} " == *" firered-code "* ]]; then
+  if ((PREPARE_ONLY == 0)) && [[ "$PIPELINE_VERSION" == CN2VI-V2 ]]; then
+    run_step "model_import_$profile" "$AUTODUB_VENV_ROOT/$profile/bin/python" \
+      "$PROJECT_ROOT/scripts/v2_model_check.py" --profile "$profile" --models-root "$AUTODUB_DATA_ROOT/models"
+  elif ((PREPARE_ONLY == 0)) && [[ " ${ASSETS[*]} " == *" firered-code "* ]]; then
     run_step "model_import_$profile" "$AUTODUB_VENV_ROOT/$profile/bin/python" \
       "$PROJECT_ROOT/scripts/v1_model_check.py" --profile "$profile" --models-root "$AUTODUB_DATA_ROOT/models"
   fi

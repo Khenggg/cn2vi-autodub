@@ -9,7 +9,8 @@ from autodub.storage import safe_path
 MODEL_IDS = frozenset({"bandit-v2-cinematic", "bandit-infer-code", "pyannote-community-1",
     "firered-code", "firered-asr2-aed", "firered-punc", "indextts-code", "indextts2-vi",
     "indextts-w2v", "indextts-codec", "indextts-speaker", "indextts-vocoder",
-    "rapidocr-v6-medium", "propainter-code", "propainter-weights"})
+    "rapidocr-v6-medium", "propainter-code", "propainter-weights",
+    "vieneu-turbo", "moss-torch", "ngoc-huyen-reference"})
 
 
 def worker_run_root() -> Path:

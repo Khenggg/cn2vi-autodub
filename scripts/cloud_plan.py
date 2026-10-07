@@ -8,7 +8,7 @@ from pathlib import Path
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--project', type=Path, default=Path(__file__).resolve().parents[1])
-    parser.add_argument('--field', choices=['assets', 'profiles'])
+    parser.add_argument('--field', choices=['assets', 'profiles', 'pipeline_version'])
     parser.add_argument('--profiles', help='Comma-separated explicit profile choices to filter or set')
     parser.add_argument('--profile', help='Explicit single profile choice')
     args = parser.parse_args()
@@ -45,6 +45,11 @@ def main():
             raise ValueError('Invalid explicit profile selection')
         plan['profiles'] = explicit
 
+    if plan.get('pipeline_version') == 'CN2VI-V2':
+        if any(p not in plan['profile_assets'] for p in plan['profiles']):
+            raise ValueError('V2 production installs only ASR, TTS and CUDA vision profiles')
+        plan['assets'] = list(dict.fromkeys(asset for profile in plan['profiles']
+                                           for asset in plan['profile_assets'][profile]))
     for field in ('assets', 'profiles'):
         values = plan[field]
         if not values or len(set(values)) != len(values) or any(not re.fullmatch(r'[a-z0-9][a-z0-9_-]*', v) for v in values):
@@ -57,7 +62,7 @@ def main():
         raise ValueError(f"Install plan references unknown environments: {sorted(unknown_envs)}")
 
     if args.field:
-        print('\n'.join(plan[args.field]))
+        print(plan.get('pipeline_version', 'legacy') if args.field == 'pipeline_version' else '\n'.join(plan[args.field]))
     else:
         size = sum(f.get('bytes') or 0 for name in plan['assets'] for f in known[name].get('files', []))
         print(json.dumps({**plan, 'known_model_download_bytes': size, 'unknown_size_files': sum(f.get('bytes') is None for name in plan['assets'] for f in known[name].get('files', [])), 'known_model_download_gib': round(size / 1024**3, 2)}, indent=2))

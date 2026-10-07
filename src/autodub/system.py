@@ -28,7 +28,11 @@ def status(settings: Settings, started: float, worker_state: str, active: str | 
     disk = shutil.disk_usage(settings.data_dir)
     elapsed_ms = int((time.monotonic() - started) * 1000)
     gpu = gpu_status()
-    return {"version": "0.1.0", "phase": "CORE_FOUNDATION", "worker_state": worker_state,
+    v2 = settings.pipeline_generation == "v2"
+    models = ("Speech Detection", "FireRed ASR", "VieNeu TTS", "CUDA OCR", "Multi-band Ducking", "Temporal Restoration") if v2 else (
+        "ASR", "Aligner", "Bandit", "TTS", "OCR", "Inpainting")
+    return {"version": "0.2.0" if v2 else "0.1.0", "phase": "V2_VOICEOVER" if v2 else "CORE_FOUNDATION",
+            "pipeline_generation": settings.pipeline_generation, "worker_state": worker_state,
             "active_episode_id": active, "gpu": gpu,
             "gpu_heavy_stage_admissible": bool(gpu["available"] and gpu["free_mb"] >= settings.gpu_safety_mb),
             "ram": {"total_bytes": ram.total, "free_bytes": ram.available},
@@ -36,8 +40,8 @@ def status(settings: Settings, started: float, worker_state: str, active: str | 
             "network": {"throughput_mbps": None, "measured_by": "browser_upload"},
             "ffprobe_available": bool(shutil.which(settings.ffprobe_bin)),
             "models": [{"name": name, "ready": False, "reason": "Benchmark and integration pending"}
-                       for name in ("ASR", "Aligner", "Bandit", "TTS", "OCR", "Inpainting")],
-            "api_key_configured": bool(os.getenv("DASHSCOPE_API_KEY")), "api_health": "NOT_VERIFIED",
+                       for name in models],
+            "api_key_configured": bool(os.getenv("DEEPSEEK_API_KEY") or settings.deepseek_key_file.is_file()), "api_health": "NOT_VERIFIED",
             "platform": platform.system(), "session_elapsed_ms": elapsed_ms,
             "cost": {**Budget(cloud_rate=settings.cloud_rate).project(elapsed_ms),
                      "basis": "process_uptime_only", "is_estimate": True,
