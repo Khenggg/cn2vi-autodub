@@ -4,13 +4,13 @@ Luồng mặc định clone GitHub, đọc `config/cloud-runtime.json`, dựng v
 
 ## Lấy đúng nhánh
 
-Bản sửa đang ở nhánh `codex/pipeline-hardening` trong PR #1, chưa merge vào main. Trên máy Ubuntu mới có GPU NVIDIA được nhà cung cấp cấp sẵn:
+PR #1 đưa luồng cài này vào `main`. Dùng `main` cho máy cloud mới; nhánh `codex/pipeline-hardening` được giữ để đối chiếu lịch sử phát triển. Trên máy Ubuntu mới có GPU NVIDIA được nhà cung cấp cấp sẵn:
 
 ```bash
 # Chạy với root; nếu là user thường, thêm sudo trước apt-get.
 apt-get update
 apt-get install -y --no-install-recommends ca-certificates git python3
-git clone --branch codex/pipeline-hardening https://github.com/Khenggg/cn2vi-autodub.git
+git clone https://github.com/Khenggg/cn2vi-autodub.git
 cd cn2vi-autodub
 git rev-parse HEAD
 bash scripts/cloud_setup.sh --dry-run
