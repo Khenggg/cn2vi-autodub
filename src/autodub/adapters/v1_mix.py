@@ -1,26 +1,31 @@
 """Blockwise three-stem mix; only timed lexical speech with usable TTS is replaced."""
 from __future__ import annotations
 
+import os
+import shutil
 import subprocess
 import wave
 from pathlib import Path
 
-from autodub.storage import atomic_json
+from autodub.adapters.common import output_folder
+from autodub.storage import atomic_json, safe_path
 
 RATE = 48000
 
 
 def _ffmpeg(arguments: list[str], config: dict) -> None:
-    subprocess.run([config.get("ffmpeg_bin", "ffmpeg"), "-hide_banner", "-loglevel", "error",
-                    *arguments], check=True, capture_output=True, timeout=3600)
+    binary = shutil.which(os.environ.get("FFMPEG_BIN", "ffmpeg"))
+    if not binary:
+        raise RuntimeError("FFmpeg is unavailable")
+    subprocess.run([binary, "-hide_banner", "-loglevel", "error",
+                    *arguments], shell=False, check=True, capture_output=True, timeout=3600)
 
 
 def run(source: Path, config: dict) -> dict:
     del source
     import numpy as np
 
-    folder = Path(config["output_dir"])
-    folder.mkdir(parents=True, exist_ok=True)
+    folder = output_folder(config)
     stems = config["stems"]
     segments = config["segments"]
     clips, masks, issues = [], [], []
@@ -34,8 +39,10 @@ def run(source: Path, config: dict) -> dict:
             continue
         start = min(w["s"] for w in words)
         slot = segment["end_ms"] - start
-        converted = folder / f"clip-{index:06d}.wav"
-        _ffmpeg(["-i", raw, "-ac", "2", "-ar", str(RATE), "-c:a", "pcm_s16le", "-y", str(converted)], config)
+        run_root = Path(config.get("run_root", folder.parent)).resolve()
+        raw_path = safe_path(run_root, raw)
+        converted = safe_path(folder, f"clip-{index:06d}.wav")
+        _ffmpeg(["-i", str(raw_path), "-ac", "2", "-ar", str(RATE), "-c:a", "pcm_s16le", "-y", str(converted)], config)
         with wave.open(str(converted), "rb") as audio:
             frames = audio.getnframes()
         actual = frames * 1000 / RATE
@@ -63,7 +70,8 @@ def run(source: Path, config: dict) -> dict:
             continue
         clips.append((left, right, values))
         masks.extend((round(w["s"] * RATE / 1000), round(w["e"] * RATE / 1000)) for w in words)
-    readers = [wave.open(stems[name], "rb") for name in ("speech", "music", "effects")]
+    run_root = Path(config.get("run_root", folder.parent)).resolve()
+    readers = [wave.open(str(safe_path(run_root, stems[name])), "rb") for name in ("speech", "music", "effects")]
     output = folder / "mixed.wav"
     clipped = 0
     try:

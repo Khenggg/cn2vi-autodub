@@ -10,7 +10,7 @@ from pathlib import Path
 from autodub.adapters.common import asset, configure_offline, identity, local_hub_files, output_folder
 from autodub.benchmedia import extract_audio
 from autodub.config import DEFAULT_VOICE_ID
-from autodub.storage import atomic_json, sha256_file
+from autodub.storage import atomic_json, safe_path, sha256_file
 
 
 def stage_code(source: Path, target: Path, replacements: dict[str, dict[str, str]]) -> None:
@@ -29,7 +29,9 @@ def stage_code(source: Path, target: Path, replacements: dict[str, dict[str, str
 def run(source: Path, config: dict) -> dict:
     from omegaconf import OmegaConf
 
-    reference = Path(config["voice_reference"]).resolve(strict=True)
+    reference = safe_path(Path(config["run_root"]).resolve(), config["voice_reference"])
+    if not reference.is_file():
+        raise ValueError("Fixed reference is unavailable in the frozen run")
     reference_hash = sha256_file(reference)
     if reference_hash != config["voice_reference_sha256"]:
         raise ValueError("Fixed Ngọc Huyền reference changed during the run")
@@ -93,7 +95,9 @@ def run(source: Path, config: dict) -> dict:
     atomic_json(report, {"schema_version": 1, "clips": clips, "issues": failures,
         "voice_id": DEFAULT_VOICE_ID, "voice_reference_sha256": reference_hash,
         "emotion_source": "original separated Chinese speech", "model_fallbacks": [],
-        "derived_config_sha256": sha256_file(cfg_path)})
+        "derived_config_sha256": sha256_file(cfg_path),
+        "runtime_path_adaptations": {relative: sha256_file(local_code / relative) for relative in
+                                    ("indextts/infer_v2.py", "indextts/utils/maskgct_utils.py")}})
     return {**identity([item[1] for item in assets.values()]), "clips": clips,
         "stage_status": "DEGRADED" if failures else "SUCCESS", "quality_evidence": {"issues": failures},
         "metrics": {"model_load_ms": load_ms, "preprocess_ms": preprocess_ms, "inference_ms": inference_ms},

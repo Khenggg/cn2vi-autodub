@@ -25,6 +25,8 @@ UNKNOWN_ASSET_SIZE_ESTIMATE = 256 * 1024**2
 
 class _PrivateRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, request, fp, code, msg, headers, newurl):
+        if urlsplit(newurl).scheme != "https":
+            raise ValueError("Private model redirects require HTTPS")
         redirected = super().redirect_request(request, fp, code, msg, headers, newurl)
         if redirected is not None and urlsplit(newurl).netloc != urlsplit(request.full_url).netloc:
             redirected.remove_header("Authorization")

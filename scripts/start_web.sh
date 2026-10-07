@@ -20,6 +20,7 @@ if [[ -f "${DATA_DIR}/run/translation.env" && -z "${DEEPSEEK_API_KEY:-}" ]]; the
   while IFS= read -r credential_line || [[ -n "$credential_line" ]]; do
     case "$credential_line" in
       DEEPSEEK_API_KEY=*) export DEEPSEEK_API_KEY="${credential_line#DEEPSEEK_API_KEY=}" ;;
+      *) : ;;
     esac
   done < "${DATA_DIR}/run/translation.env"
 fi

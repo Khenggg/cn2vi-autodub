@@ -82,24 +82,6 @@ if (( WITH_DOCKER )); then
   fi
 fi
 
-# Ensure managed Python 3.12
-if [[ "${VERSION_ID}" == "24.04" ]]; then
-  "${SUDO[@]}" apt-get install -y --no-install-recommends python3.12 python3.12-venv python3.12-dev
-fi
-
-if command -v python3.12 >/dev/null 2>&1; then
-  PYTHON_BIN="$(command -v python3.12)"
-else
-  # Ubuntu 22.04 does not provide Python 3.12 in its standard apt repositories.
-  TOOL_ENV="${DATA_ROOT}/cache/bootstrap-tools"
-  "${SUDO[@]}" install -d -m 0775 -o "${RUN_USER}" -g "${RUN_GROUP}" "${DATA_ROOT}/cache"
-  python3 -m venv "${TOOL_ENV}"
-  "${TOOL_ENV}/bin/python" -m pip install "uv==0.9.6"
-  "${TOOL_ENV}/bin/uv" python install 3.12.12
-  PYTHON_BIN="$("${TOOL_ENV}/bin/uv" python find 3.12.12)"
-fi
-"${PYTHON_BIN}" -c 'import sys; assert sys.version_info[:2] == (3, 12), sys.version'
-
 # Prepare and verify data and venv roots (resolves unreadable /data issues)
 if [[ ! -d "${DATA_ROOT}" ]]; then
   "${SUDO[@]}" install -d -m 0775 -o "${RUN_USER}" -g "${RUN_GROUP}" "${DATA_ROOT}"
@@ -133,6 +115,24 @@ if ! touch "${PROBE_FILE}" 2>/dev/null; then
   fi
 fi
 rm -f "${PROBE_FILE}"
+
+# Ensure managed Python 3.12
+if [[ "${VERSION_ID}" == "24.04" ]]; then
+  "${SUDO[@]}" apt-get install -y --no-install-recommends python3.12 python3.12-venv python3.12-dev
+fi
+
+if command -v python3.12 >/dev/null 2>&1; then
+  PYTHON_BIN="$(command -v python3.12)"
+else
+  # Ubuntu 22.04 does not provide Python 3.12 in its standard apt repositories.
+  TOOL_ENV="${DATA_ROOT}/cache/bootstrap-tools"
+  "${SUDO[@]}" install -d -m 0775 -o "${RUN_USER}" -g "${RUN_GROUP}" "${DATA_ROOT}/cache"
+  python3 -m venv "${TOOL_ENV}"
+  "${TOOL_ENV}/bin/python" -m pip install "uv==0.9.6"
+  "${TOOL_ENV}/bin/uv" python install 3.12.12
+  PYTHON_BIN="$("${TOOL_ENV}/bin/uv" python find 3.12.12)"
+fi
+"${PYTHON_BIN}" -c 'import sys; assert sys.version_info[:2] == (3, 12), sys.version'
 
 export PIP_CACHE_DIR="${DATA_ROOT}/cache/pip"
 export HF_HOME="${DATA_ROOT}/cache/huggingface"
@@ -213,6 +213,7 @@ create_or_update_env() {
     diarization) import_modules="torch,torchaudio,torchcodec,pyannote.audio" ;;
     indextts) import_modules="torch,torchaudio,librosa,audioread,soundfile,transformers,modelscope" ;;
     vision) import_modules="torch,torchvision,cv2,onnxruntime,rapidocr" ;;
+    *) import_modules="" ;;
   esac
   if [[ -n "$import_modules" ]]; then
     "${python}" -c 'import importlib,sys; [importlib.import_module(name) for name in sys.argv[1].split(",")]' "$import_modules"

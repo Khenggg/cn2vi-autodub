@@ -88,6 +88,7 @@ class V1Pipeline:
             raise RunDrained()
         options = {**self.config, **kwargs, "output_dir": str(self.run.root / name.lower())}
         options["model_lock_path"] = str(self.run.root / "snapshot/benchmarks/models.lock.json")
+        options["run_root"] = str(self.run.root)
         if self.frozen_reference.is_file():
             options["voice_reference"] = str(self.frozen_reference)
         saved = self.completed.get(name)

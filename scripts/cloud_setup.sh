@@ -147,6 +147,9 @@ if ! mkdir -p -- "$JOURNAL_DIR" 2>/dev/null; then
   sudo -v || { printf 'cloud_setup: sudo authentication failed while preparing journal\n' >&2; exit 1; }
   RUN_USER="${SUDO_USER:-$(id -un)}"
   RUN_GROUP="$(id -gn "$RUN_USER")"
+  if [[ -d "$AUTODUB_DATA_ROOT" ]]; then
+    sudo chmod a+rx -- "$AUTODUB_DATA_ROOT"
+  fi
   sudo install -d -o "$RUN_USER" -g "$RUN_GROUP" -- "$JOURNAL_DIR" || {
     printf 'cloud_setup: cannot create journal directory\n' >&2
     exit 1

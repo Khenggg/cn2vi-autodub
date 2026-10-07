@@ -29,6 +29,7 @@ _SECRET_KEY = re.compile(r"(?:secret|token|password|credential|api[_-]?key|autho
 _SAFE_ENV = (
     "PATH", "SYSTEMROOT", "WINDIR", "TEMP", "TMP", "CUDA_VISIBLE_DEVICES",
     "CUDA_HOME", "CUDA_PATH", "LD_LIBRARY_PATH", "DEEPSEEK_API_KEY",
+    "FFMPEG_BIN", "FFPROBE_BIN",
 )
 
 

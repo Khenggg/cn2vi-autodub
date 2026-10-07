@@ -1,6 +1,7 @@
 import hashlib
 import json
 import os
+import re
 import time
 from contextlib import contextmanager
 from pathlib import Path
@@ -9,8 +10,11 @@ from autodub.model_assets import load_manifest
 
 
 def asset(config: dict, identifier: str) -> tuple[Path, dict]:
+    from autodub.storage import safe_path
+    if not isinstance(identifier, str) or not re.fullmatch(r"[a-z0-9][a-z0-9_-]*", identifier):
+        raise ValueError("Unsafe model asset identifier")
     root = Path(config.get("models_root", "/data/models")).resolve()
-    path = root / identifier
+    path = safe_path(root, identifier)
     manifest = load_manifest(path)
     if config.get("model_lock_path"):
         from autodub.model_assets import _verify_download
@@ -19,13 +23,14 @@ def asset(config: dict, identifier: str) -> tuple[Path, dict]:
         if expected is None or expected["revision"] != manifest["model_revision"]:
             raise ValueError("Model asset differs from the frozen lock")
         for item in expected.get("files", []):
-            from autodub.storage import safe_path
             _verify_download(safe_path(path, item["path"]), item)
     return path, manifest
 
 
 def output_folder(config: dict) -> Path:
     folder = Path(config["output_dir"]).resolve()
+    if config.get("run_root") and not folder.is_relative_to(Path(config["run_root"]).resolve()):
+        raise ValueError("Model output escapes the run directory")
     folder.mkdir(parents=True, exist_ok=True)
     return folder
 
