@@ -69,7 +69,8 @@ def run(source: Path, config: dict) -> dict:
             result.extend(s.model_dump() for s in translated)
         except Exception as error:
             issues.append({"segment_ids": [s.id for s in batch], "code": "TRANSLATION_BATCH_UNAVAILABLE",
-                           "error_type": type(error).__name__})
+                           "error_type": type(error).__name__,
+                           "http_status": getattr(error, "code", None) if isinstance(getattr(error, "code", None), int) else None})
             result.extend(s.model_copy(update={"action": "KEEP", "needs_review": True}).model_dump()
                           for s in batch)
     target = output_folder(config) / "translation.json"

@@ -35,6 +35,10 @@ _SAFE_ENV = (
 class ModelRunnerError(RuntimeError):
     """A bounded, sanitized failure from a model subprocess."""
 
+    def __init__(self, message: str, *, error_code: str = "ModelRunnerError"):
+        super().__init__(message)
+        self.error_code = error_code
+
 
 def _public_config(value: Any) -> Any:
     """Copy JSON data while removing credential-like fields at every depth."""
@@ -133,7 +137,7 @@ class ModelRunner:
                 if (isinstance(envelope, dict) and envelope.get("schema_version") == 1
                         and envelope.get("stage") == stage
                         and isinstance(error_code, str) and re.fullmatch(r"[A-Za-z][A-Za-z0-9]{0,63}", error_code)):
-                    raise ModelRunnerError(f"Model worker failed during {stage} ({error_code})")
+                    raise ModelRunnerError(f"Model worker failed during {stage} ({error_code})", error_code=error_code)
                 raise ModelRunnerError(f"Model worker failed during {stage}")
 
             if (not isinstance(envelope, dict) or envelope.get("schema_version") != 1

@@ -137,10 +137,12 @@ class ExperimentalRun:
                 except Exception as error:
                     result = None
                     record["status"] = "FAILED_FATAL"
-                    record["attempts"].append({"attempt": attempt + 1,
+                    error_code = getattr(error, "error_code", type(error).__name__)
+                    record["attempts"].append({"attempt": attempt + 1, "error_code": error_code,
                         "error_type": type(error).__name__, "wall_seconds": time.perf_counter() - started})
                     if attempt + 1 == attempts:
-                        self.issue(stage, "NO_USABLE_ARTIFACT", evidence={"error_type": type(error).__name__},
+                        self.issue(stage, "NO_USABLE_ARTIFACT", evidence={"error_type": type(error).__name__,
+                                                                         "error_code": error_code},
                                    downstream_effect="Unavailable artifact is not used; independent artifacts may continue")
         finally:
             sampler.stop.set()

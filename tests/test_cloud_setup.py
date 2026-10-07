@@ -146,6 +146,7 @@ def _run_setup(project: Path, data: Path, venv: Path, call_log: Path, host_log: 
         "HOST_CHECK_LOG": _shell_path(host_log, platform),
         "FAKE_GPU_FAIL": "1" if fail_host else "0",
         "DANGEROUS_COMMAND_LOG": _shell_path(project.parent / "dangerous-commands.log", platform),
+        "START_WEB_LOG": _shell_path(project.parent / "startup.log", platform),
     }
     exports = " ".join(f"{key}={shlex.quote(value)}" for key, value in bindings.items())
     command = f"export {exports}; export PATH={shlex.quote(_shell_path(fake_bin, platform))}:/usr/bin:/bin; " \
@@ -313,6 +314,9 @@ fi
 exit 0
 """, encoding="utf-8")
     start_web.chmod(0o755)
+    curl = fake_bin / "curl"
+    curl.write_text("#!/usr/bin/env bash\n[[ \"$*\" == *127.0.0.1:8080/healthz* ]] || exit 95\nexit 0\n")
+    curl.chmod(0o755)
     journal = data / "results" / "startup-verified.log"
     result = _run_setup(project, data, venv, call_log, host_log, fake_bin, journal,
                         shell_platform, "--verify-startup")
@@ -321,3 +325,20 @@ exit 0
     assert "step=verify_startup status=PASS" in contents
     assert "run_status=STARTUP_VERIFIED" in contents
     assert "inference_quality=UNVERIFIED" in contents
+
+
+def test_pid_without_http_health_is_not_startup_verified(tmp_path: Path, shell_platform: str) -> None:
+    project, data, venv, call_log, host_log, fake_bin = _fake_project(tmp_path, shell_platform)
+    start = project / "scripts/start_web.sh"
+    start.write_text("#!/usr/bin/env bash\nexit 0\n")
+    start.chmod(0o755)
+    for name in ("curl", "sleep"):
+        executable = fake_bin / name
+        executable.write_text(f"#!/usr/bin/env bash\nexit {22 if name == 'curl' else 0}\n")
+        executable.chmod(0o755)
+    journal = data / "results" / "http-unavailable.log"
+    result = _run_setup(project, data, venv, call_log, host_log, fake_bin, journal,
+                        shell_platform, "--verify-startup")
+    assert result.returncode != 0
+    assert "run_status=BLOCKED" in journal.read_text()
+    assert "run_status=STARTUP_VERIFIED" not in journal.read_text()

@@ -148,6 +148,17 @@ def recognize(source: Path, config: dict) -> dict:
     model = FireRedAsr2.from_pretrained("aed", str(weights), FireRedAsr2Config(
         use_gpu=config.get("device", "cuda:0").startswith("cuda"), use_half=True,
         return_timestamp=True, beam_size=3))
+    upstream_timestamps = model._get_and_fix_timestamp
+    native_timestamp_flags = []
+
+    def native_timestamps_only(hypothesis, token_ids, duration):
+        present = hypothesis.get("timestamp") is not None
+        native_timestamp_flags.append(present)
+        # The upstream helper otherwise invents equally spaced times. Missing
+        # native evidence remains missing; it must not become a lexical mask.
+        return upstream_timestamps(hypothesis, token_ids, duration) if present else []
+
+    model._get_and_fix_timestamp = native_timestamps_only
     load_ms = (time.perf_counter() - tick) * 1000
     tick = time.perf_counter()
     segments, raw, issues = [], [], []
@@ -166,7 +177,9 @@ def recognize(source: Path, config: dict) -> dict:
             issues.append({"segment_id": sid, "code": "ASR_EMPTY_RESULT", **window})
             continue
         result = results[0]
-        raw.append({"window": window, "output": result})
+        raw.append({"window": window, "output": result,
+                    "native_timestamp_available": native_timestamp_flags[-1] if native_timestamp_flags else False})
+        native_timestamp_flags.clear()
         text = str(result.get("text", "")).strip()
         if not text:
             issues.append({"segment_id": sid, "code": "ASR_EMPTY_TEXT", **window})
@@ -184,6 +197,8 @@ def recognize(source: Path, config: dict) -> dict:
                 issues.append({"segment_id": sid, "code": "INVALID_NATIVE_WORD_TIME",
                                "raw_time": [left, right]})
         overlap = len(window["speaker_ids"]) != 1
+        if not words:
+            issues.append({"segment_id": sid, "code": "NATIVE_WORD_TIMING_UNAVAILABLE"})
         nonverbal = bool(text) and all(char in "啊呃嗯哎哈呵！？!?,，。 " for char in text)
         confidence = result.get("confidence")
         if confidence is not None and not (math.isfinite(confidence) and 0 <= confidence <= 1):
@@ -193,7 +208,7 @@ def recognize(source: Path, config: dict) -> dict:
         segments.append({"id": sid, "start_ms": window["start_ms"], "end_ms": window["end_ms"],
             "zh_text": text, "words": words, "speaker_id": window["speaker_ids"][0] if not overlap else None,
             "track_id": window["speaker_ids"][0] if not overlap else "overlap",
-            "action": "KEEP" if overlap or nonverbal else "DUB", "needs_review": bool(overlap or not words),
+            "action": "KEEP" if overlap or nonverbal or not words else "DUB", "needs_review": bool(overlap or not words),
             "confidence": {"asr": confidence}, "confidence_calibrated": False,
             "speech_kind": "nonverbal" if nonverbal else "lexical", "subtitle_vi": "", "dub_vi": ""})
     return _result(config, "transcript.json", {"schema_version": 1, "source_sha256": sha256_file(source),
