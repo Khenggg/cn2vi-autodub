@@ -15,6 +15,10 @@ from autodub.storage import atomic_json, sha256_file
 from autodub.utterances import build_utterances
 
 LANGUAGE_CODE = re.compile(r"^[a-z]{2,3}$")
+# A rejection threshold for raw CTC match scores, not calibrated confidence.
+MIN_ALIGNMENT_SCORE = 0.01
+MIN_UTTERANCE_SPAN_MS = 100
+ALIGNMENT_POLICY_REVISION = 2
 
 
 def _device(config: dict) -> tuple[str, int]:
@@ -109,23 +113,72 @@ def _alignment_asset(config: dict, language: str) -> tuple[Path, dict] | None:
         return None
 
 
-def _word_groups(aligned: list[dict], source_segments: list[Segment]) -> list[list[dict]]:
-    if len(aligned) != len(source_segments):
-        return [[] for _ in source_segments]
-    result = []
-    for item, source in zip(aligned, source_segments, strict=True):
-        words, invalid = [], False
-        for word in item.get("words", []):
-            token = str(word.get("word", "")).strip()
-            if not token or word.get("start") is None or word.get("end") is None:
-                continue
-            start, end = _milliseconds(word["start"]), _milliseconds(word["end"])
-            if not source.start_ms <= start < end <= source.end_ms:
-                invalid = True
-                break
-            words.append({"t": token, "s": start, "e": end})
-        result.append([] if invalid else words)
-    return result
+def _text_units(text: str) -> str:
+    return "".join(char.casefold() for char in text if char.isalnum())
+
+
+def _alignment_word(word: dict, source: Segment) -> tuple[dict | None, str | None]:
+    token = str(word.get("word", "")).strip()
+    if not _text_units(token):
+        return None, None
+    try:
+        start, end = _milliseconds(word.get("start")), _milliseconds(word.get("end"))
+        score = float(word.get("score"))
+    except (TypeError, ValueError):
+        return None, "MISSING_OR_INVALID_WORD_ALIGNMENT"
+    if not source.start_ms <= start < end <= source.end_ms:
+        return None, "WORD_OUTSIDE_ASR_WINDOW"
+    if not math.isfinite(score) or not MIN_ALIGNMENT_SCORE <= score <= 1:
+        return None, "LOW_CTC_MATCH_SCORE"
+    return {"t": token, "s": start, "e": end}, None
+
+
+def _validated_word_group(raw_words: list[dict], source: Segment) -> tuple[list[dict], str | None]:
+    words = []
+    for raw in raw_words:
+        word, reason = _alignment_word(raw, source)
+        if reason:
+            return [], reason
+        if word is not None:
+            if words and words[-1]["e"] > word["s"]:
+                return [], "NON_MONOTONIC_WORD_ALIGNMENT"
+            words.append(word)
+    if not words or _text_units("".join(word["t"] for word in words)) != _text_units(source.zh_text):
+        return [], "INCOMPLETE_TEXT_ALIGNMENT"
+    if words[-1]["e"] - words[0]["s"] < MIN_UTTERANCE_SPAN_MS:
+        return [], "COLLAPSED_UTTERANCE_ALIGNMENT"
+    return words, None
+
+
+class _PreparedAlignModel:
+    """Apply the pinned HF feature extractor to each waveform WhisperX crops."""
+
+    def __init__(self, model, feature_extractor):
+        self.model = model
+        self.feature_extractor = feature_extractor
+
+    def __call__(self, waveform):
+        prepared = self.feature_extractor(
+            waveform[0].detach().cpu().numpy(), sampling_rate=16000, return_tensors="pt")
+        return self.model(**{key: value.to(waveform.device) for key, value in prepared.items()})
+
+
+def _prepare_align_model(model, metadata: dict, align_path: Path):
+    if metadata.get("type") != "huggingface":
+        return model
+    from transformers import Wav2Vec2FeatureExtractor
+    extractor = Wav2Vec2FeatureExtractor.from_pretrained(str(align_path), local_files_only=True)
+    return _PreparedAlignModel(model, extractor)
+
+
+def _aligned_source_words(whisperx, model, metadata: dict, audio, device: str,
+                          source: Segment) -> list[dict]:
+    # WhisperX may sentence-split a source segment. Align one source at a time
+    # so its result can never be paired with another source by list position.
+    result = whisperx.align([{"start": source.start_ms / 1000, "end": source.end_ms / 1000,
+                              "text": source.zh_text}], model, metadata, audio, device,
+                            return_char_alignments=False)
+    return [word for item in result.get("segments", []) for word in item.get("words", [])]
 
 
 def run_alignment(source: Path, config: dict) -> dict:
@@ -162,6 +215,7 @@ def run_alignment(source: Path, config: dict) -> dict:
     align_path, align_manifest = selected
     metrics = {"model_load_ms": 0, "inference_ms": 0}
     output = []
+    diagnostics = []
     if segments:
         import nltk
         import whisperx
@@ -178,21 +232,28 @@ def run_alignment(source: Path, config: dict) -> dict:
         cache_dir.mkdir(parents=True, exist_ok=True)
         started = time.perf_counter()
         model, metadata = whisperx.load_align_model(
-            language_code=language, device=device, model_name=str(align_path), model_dir=str(cache_dir))
+            language_code=language, device=device, model_name=str(align_path), model_dir=str(cache_dir),
+            model_cache_only=True)
+        model = _prepare_align_model(model, metadata, align_path)
         metrics["model_load_ms"] = round((time.perf_counter() - started) * 1000)
         audio = whisperx.load_audio(str(source))
-        inputs = [{"start": item.start_ms / 1000, "end": item.end_ms / 1000, "text": item.zh_text}
-                  for item in segments]
         started = time.perf_counter()
-        result = whisperx.align(inputs, model, metadata, audio, device, return_char_alignments=False)
-        metrics["inference_ms"] = round((time.perf_counter() - started) * 1000)
-        groups = _word_groups(result.get("segments", []) if isinstance(result, dict) else [], segments)
-        for source_segment, words in zip(segments, groups, strict=True):
+        for source_segment in segments:
+            raw_words = _aligned_source_words(whisperx, model, metadata, audio, device, source_segment)
+            words, reason = _validated_word_group(raw_words, source_segment)
             utterances = build_utterances(source_segment.zh_text, words,
                                           (source_segment.start_ms, source_segment.end_ms)) if words else []
+            if any(item["end_ms"] - item["start_ms"] < MIN_UTTERANCE_SPAN_MS for item in utterances):
+                utterances, reason = [], "COLLAPSED_UTTERANCE_ALIGNMENT"
+            diagnostics.append({"source_segment_id": source_segment.id, "reason": reason,
+                                "raw_word_count": len(raw_words), "accepted": bool(utterances)})
             if not utterances:
                 output.extend(_review_segments([source_segment]))
                 continue
+            # CTC word supports are for word timing/masking; they must not shrink
+            # the whole speech slot used for translation and Vietnamese TTS.
+            utterances[0]["start_ms"] = source_segment.start_ms
+            utterances[-1]["end_ms"] = source_segment.end_ms
             for index, utterance in enumerate(utterances):
                 output.append(Segment.model_validate({
                     "id": f"seg_{utterance['start_ms']:012d}_{index:04d}",
@@ -201,13 +262,16 @@ def run_alignment(source: Path, config: dict) -> dict:
                     "confidence": {"asr": None, "alignment": None},
                     "action": "NEEDS_REVIEW", "needs_review": True,
                 }).model_dump())
-        metrics["aligned_segment_count"] = sum(bool(group) for group in groups)
+        metrics["inference_ms"] = round((time.perf_counter() - started) * 1000)
+        metrics["aligned_segment_count"] = sum(item["accepted"] for item in diagnostics)
 
     timing_available = bool(output) and all(item["words"] for item in output)
     atomic_json(target, {
         "schema_version": 1, "source_sha256": source_hash, "language": language,
         "alignment_status": "ALIGNED" if timing_available else "PARTIAL_REVIEW_REQUIRED",
         "segments": output, "word_timing_available": timing_available,
+        "alignment_policy_revision": ALIGNMENT_POLICY_REVISION,
+        "alignment_diagnostics": diagnostics,
     })
     return {
         **identity([asr_manifest, align_manifest]), "language": language or None,

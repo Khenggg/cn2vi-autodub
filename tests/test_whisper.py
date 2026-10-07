@@ -3,7 +3,10 @@ import sys
 import types
 from types import SimpleNamespace
 
+import pytest
+
 from autodub.adapters import whisper
+from autodub.contracts import Segment
 from autodub.storage import sha256_file
 
 ASR_MANIFEST = {"id": "whisper-asr", "model_revision": "pinned-rev", "weights_sha256": "asr-hash"}
@@ -78,7 +81,8 @@ def test_missing_language_aligner_preserves_coarse_bounds_and_requests_review(tm
     assert "pinned_alignment_asset:alignment-ja" in result["quality_evidence"]["missing"]
 
 
-def test_alignment_uses_local_language_asset_and_emits_word_times(tmp_path, monkeypatch):
+@pytest.mark.parametrize("failed_match", [False, True])
+def test_alignment_uses_local_language_asset_and_emits_word_times(tmp_path, monkeypatch, failed_match):
     source = tmp_path / "episode.mp4"
     source.write_bytes(b"source")
     transcript_path = tmp_path / "transcript.json"
@@ -106,8 +110,8 @@ def test_alignment_uses_local_language_asset_and_emits_word_times(tmp_path, monk
     def align(segments, _model, _metadata, _audio, _device, **kwargs):
         calls["align"] = kwargs
         return {"segments": [{"words": [
-            {"word": "hello", "start": 1.1, "end": 1.7},
-            {"word": "world", "start": 2.0, "end": 2.7},
+            {"word": "hello", "start": 1.1, "end": 1.7, "score": 0.0 if failed_match else 0.9},
+            {"word": "world", "start": 2.0, "end": 2.7, "score": 0.9},
         ]}]}
 
     fake_whisperx.load_align_model = load_align_model
@@ -126,7 +130,62 @@ def test_alignment_uses_local_language_asset_and_emits_word_times(tmp_path, monk
     assert calls["load"]["language_code"] == "en"
     assert calls["load"]["model_name"] == str(align_folder)
     assert calls["load"]["model_dir"] == str(tmp_path / "cache" / "alignment")
+    assert calls["load"]["model_cache_only"] is True
     assert calls["align"]["return_char_alignments"] is False
-    assert report["word_timing_available"] is True
-    assert [word["t"] for word in report["segments"][0]["words"]] == ["hello", "world"]
+    if failed_match:
+        assert report["alignment_status"] == "PARTIAL_REVIEW_REQUIRED"
+        assert report["word_timing_available"] is False
+        assert report["segments"][0]["words"] == []
+        assert report["segments"][0]["zh_text"] == "hello world."
+        assert report["alignment_diagnostics"][0]["reason"] == "LOW_CTC_MATCH_SCORE"
+    else:
+        assert report["word_timing_available"] is True
+        assert [word["t"] for word in report["segments"][0]["words"]] == ["hello", "world"]
+    assert report["segments"][0]["start_ms"] == 1000
+    assert report["segments"][0]["end_ms"] == 3000
     assert result["language"] == "en"
+
+
+@pytest.mark.parametrize("words,reason", [
+    ([{"word": "三", "start": 27.26, "end": 27.281, "score": 0.0}], "LOW_CTC_MATCH_SCORE"),
+    ([{"word": "三", "start": 27.26, "end": 27.281, "score": 0.9}], "COLLAPSED_UTTERANCE_ALIGNMENT"),
+    ([{"word": "三", "start": 27.26, "end": 27.86}], "MISSING_OR_INVALID_WORD_ALIGNMENT"),
+    ([{"word": "三", "start": 27.0, "end": 27.86, "score": 0.9}], "WORD_OUTSIDE_ASR_WINDOW"),
+])
+def test_unusable_ctc_output_never_becomes_a_speech_slot(words, reason):
+    source = Segment(id="countdown", start_ms=27260, end_ms=27860, zh_text="三")
+    accepted, failure = whisper._validated_word_group(words, source)
+    assert accepted == [] and failure == reason
+    preserved = whisper._review_segments([source])[0]
+    assert (preserved["start_ms"], preserved["end_ms"]) == (27260, 27860)
+    assert preserved["words"] == [] and preserved["needs_review"] is True
+
+
+def test_missing_or_overlapping_words_cannot_pass_alignment_validation():
+    source = Segment(id="line", start_ms=1000, end_ms=3000, zh_text="hello world")
+    _, reason = whisper._validated_word_group(
+        [{"word": "hello", "start": 1.1, "end": 1.7, "score": 0.9}], source)
+    assert reason == "INCOMPLETE_TEXT_ALIGNMENT"
+    _, reason = whisper._validated_word_group([
+        {"word": "hello", "start": 1.1, "end": 2.0, "score": 0.9},
+        {"word": "world", "start": 1.8, "end": 2.7, "score": 0.9},
+    ], source)
+    assert reason == "NON_MONOTONIC_WORD_ALIGNMENT"
+
+
+def test_whisperx_sentence_splits_stay_attached_to_their_source():
+    source = Segment(id="line", start_ms=1000, end_ms=3000, zh_text="Hello. Goodbye.")
+    calls = []
+
+    def align(inputs, *_args, **_kwargs):
+        calls.append(inputs)
+        return {"segments": [
+            {"words": [{"word": "Hello.", "start": 1.1, "end": 1.6, "score": 0.9}]},
+            {"words": [{"word": "Goodbye.", "start": 2.0, "end": 2.7, "score": 0.9}]},
+        ]}
+
+    raw = whisper._aligned_source_words(SimpleNamespace(align=align), None, {}, None, "cuda", source)
+    words, reason = whisper._validated_word_group(raw, source)
+    assert reason is None
+    assert [word["t"] for word in words] == ["Hello.", "Goodbye."]
+    assert calls == [[{"start": 1.0, "end": 3.0, "text": "Hello. Goodbye."}]]

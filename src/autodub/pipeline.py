@@ -450,11 +450,17 @@ class Pipeline:
                 ep_id, "ALIGNING", "Đang căn chỉnh thời gian từng từ theo ngôn ngữ (WhisperX)",
                 progress=0.20, next_stage="TRANSLATING",
             )
-            had_alignment_checkpoint = "ALIGNING" in self._checkpoint.get("completed_stages", [])
-            align_res = self._run_stage("ALIGNING", source, {
+            from autodub.adapters.whisper import ALIGNMENT_POLICY_REVISION
+            align_config = {
                 "output_dir": str(work_dir / "align"),
                 "transcript_path": str(transcript_path),
-            })
+                "alignment_policy_revision": ALIGNMENT_POLICY_REVISION,
+            }
+            had_alignment_checkpoint = (
+                "ALIGNING" in self._checkpoint.get("completed_stages", [])
+                and self._checkpoint.get("stage_inputs", {}).get("ALIGNING") == fingerprint(align_config)
+            )
+            align_res = self._run_stage("ALIGNING", source, align_config)
             align_path = Path(align_res["artifacts"][0])
             self._register_artifact(ep_id, "alignment", align_path)
             align_data = json.loads(align_path.read_text(encoding="utf-8"))
