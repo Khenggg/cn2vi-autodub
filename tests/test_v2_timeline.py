@@ -4,7 +4,12 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from autodub.adapters.subtitle_tracking import SubtitleTracker, frame_timestamps, recognition_slices, same_shape
+from autodub.adapters.subtitle_tracking import (
+    SubtitleTracker,
+    frame_timestamps,
+    recognition_slices,
+    same_shape,
+)
 from autodub.adapters.v2_mix import RATE, trim_silent_edges
 from autodub.contracts import Segment
 from autodub.timeline import sentence_timeline, timeline_manifest
