@@ -21,6 +21,8 @@ def run(source: Path, config: dict) -> dict:
         raise ValueError("Ngọc Huyền is the fixed production voice")
     folder = output_folder(config)
     eligible = [s for s in config["segments"] if s["action"] == "DUB" and s.get("dub_vi", "").strip()]
+    if len({s['id'] for s in config['segments']}) != len(config['segments']):
+        raise ValueError('Duplicate TTS segment identity')
     clips, issues, generated_ms = {}, [], 0
     load_ms = inference_ms = conditioning_ms = 0.0
     manifests = []

@@ -79,7 +79,7 @@ def classify_text(lines: list[dict], crop_height: int, crop_width: int = 640) ->
 
 
 def scan(source: Path, config: dict) -> dict:
-    from autodub.adapters.subtitle_events import scan as scan_subtitles
+    from autodub.adapters.subtitle_tracking import scan as scan_subtitles
 
     return scan_subtitles(source, config, engine_factory=build_engine)
 

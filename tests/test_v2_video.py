@@ -91,12 +91,16 @@ def test_event_ocr_reuses_static_text_and_records_clean_donors(tmp_path, monkeyp
     result = v2_vision.scan(source, {"duration_ms": 2000})
     report = json.loads(Path(result["artifacts"][0]).read_text())
     assert report["decoded_frames"] == 20
-    assert len(calls) < 10
+    assert calls == []  # Localization must not invoke the full OCR detector.
     assert len(report["events"]) == 1 and report["events"][0]["kind"] == "DIALOGUE"
     assert report["events"][0]["donors"]
     assert report["provider"] == "CUDAExecutionProvider"
     assert report['recognition_batch_calls'] > 0
-    assert report['materialized_frames'] == 10
+    assert report['materialized_frames'] == 20
+    assert report['calibration_calls'] == 0
+    assert report['recognized_line_images'] == 1
+    assert report['events'][0]['start_ms'] == 500
+    assert report['events'][0]['end_ms'] == 1500
 
 
 def test_locate_dialogue_line_excludes_yellow_title_and_logo():

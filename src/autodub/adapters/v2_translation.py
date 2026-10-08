@@ -11,6 +11,8 @@ def run(source: Path, config: dict) -> dict:
     folder = output_folder(config)
     segments = config["segments"]
     eligible = [s for s in segments if s["action"] == "DUB" and not s.get("context_provenance", {}).get("human_reviewed")]
+    if len({s['id'] for s in segments}) != len(segments):
+        raise ValueError('Duplicate translation segment identity')
     size = int(config.get("translation_batch_size", 24))
     workers = int(config.get("translation_concurrency", 2))
     if not 1 <= size <= 48 or not 1 <= workers <= 4:
@@ -25,6 +27,9 @@ def run(source: Path, config: dict) -> dict:
 
     with ThreadPoolExecutor(max_workers=workers) as executor:
         results = list(executor.map(operation, enumerate(groups)))
+    returned = [s['id'] for result in results for s in result['segments']]
+    if len(returned) != len(set(returned)) or set(returned) != {s['id'] for s in eligible}:
+        raise ValueError('Translation response identity coverage mismatch')
     translated = {s["id"]: s for result in results for s in result["segments"]}
     complete = [translated.get(s["id"], s) for s in segments]
     calls = [call for result in results for call in result.get("api_calls", [])]

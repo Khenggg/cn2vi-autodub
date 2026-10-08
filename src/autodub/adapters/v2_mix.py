@@ -13,6 +13,19 @@ from autodub.storage import atomic_json, sha256_file
 RATE = 48000
 
 
+def trim_silent_edges(clip):
+    """Remove only near-zero outer samples; preserve 10ms of edge context."""
+    import numpy as np
+
+    peak = float(np.max(np.abs(clip)))
+    active = np.flatnonzero(np.abs(clip) > max(1e-5, peak * 0.001))
+    if not len(active):
+        return clip, 0, 0
+    left = max(0, int(active[0]) - RATE // 100)
+    right = min(len(clip), int(active[-1]) + RATE // 100 + 1)
+    return clip[left:right], left, len(clip) - right
+
+
 def ducking_graph() -> str:
     # A unit control signal yields nominal -14/-3dB steady-state reduction.
     # Attack/release follow actual TTS activity; quiet pauses do not hold the duck.
@@ -73,6 +86,8 @@ def run(source: Path, config: dict) -> dict:
             clip, rate = sf.read(path, dtype="float32")
             if rate != RATE or clip.ndim != 1 or not len(clip) or not np.isfinite(clip).all():
                 raise ValueError("TTS clip is not mono 48kHz finite audio")
+            clip, leading, trailing = trim_silent_edges(clip)
+            unaligned_ms = round(len(clip) * 1000 / RATE)
             left, right = round(segment["start_ms"] * RATE / 1000), round(segment["end_ms"] * RATE / 1000)
             if not 0 <= left < right <= samples:
                 raise ValueError("Voice slot exceeds source timeline")
@@ -84,8 +99,10 @@ def run(source: Path, config: dict) -> dict:
                 issues.append({"segment_id": sid, "code": "TTS_TOO_LONG_NO_TRUNCATION", "duration_ratio": factor})
                 continue
             if factor > 1:
+                trimmed_path = folder / f"trimmed-{len(added):06d}.wav"
+                sf.write(trimmed_path, clip, RATE, subtype='PCM_16')
                 fitted = folder / f"fitted-{len(added):06d}.wav"
-                _fit_clip(path, fitted, factor)
+                _fit_clip(trimmed_path, fitted, factor)
                 clip, _ = sf.read(fitted, dtype="float32")
                 # atempo can have a small sample-count difference; never chop a syllable.
                 if len(clip) > right - left + RATE // 100:
@@ -98,7 +115,11 @@ def run(source: Path, config: dict) -> dict:
             voice[left:end] += clip
             used.append((left, max(right, end)))
             added.append({"segment_id": sid, "start_ms": segment["start_ms"],
-                          "end_ms": round(end * 1000 / RATE)})
+                          "end_ms": round(end * 1000 / RATE), 'start_sample': left,
+                          'slot_end_ms': segment['end_ms'], 'source_timing': segment.get('timing_source', 'UNKNOWN'),
+                          'trimmed_leading_ms': round(leading * 1000 / RATE),
+                          'trimmed_trailing_ms': round(trailing * 1000 / RATE),
+                          'unfitted_duration_ms': unaligned_ms, 'time_stretch_factor': max(1, factor)})
         voice.flush()
         voice_path, control_path = folder / "vietnamese.wav", folder / "sidechain.wav"
         _write_bus(voice_path, voice)

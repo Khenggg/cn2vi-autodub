@@ -12,6 +12,7 @@ from autodub.checkpoint import fingerprint
 from autodub.model_runner import ModelRunner
 from autodub.multimodal import merge_dialogue
 from autodub.storage import atomic_json, sha256_file
+from autodub.timeline import sentence_timeline, timeline_manifest
 from autodub.v1_pipeline import RunDrained, V1Pipeline, read_result, write_subtitles
 
 
@@ -121,6 +122,14 @@ class V2Pipeline(V1Pipeline):
                     gate["segments"][index] = dict(approved[segment["id"]])
                     gate["segments"][index]["context_provenance"] = {**gate["segments"][index].get("context_provenance", {}),
                                                                       "human_reviewed": True}
+            timeline = sentence_timeline(gate['segments'], ocr_data.get('events', []))
+            gate['segments'] = timeline['segments']
+            gate['issues'].extend(timeline['issues'])
+            for index, segment in enumerate(gate['segments']):
+                if segment['id'] in approved:
+                    gate['segments'][index] = {**approved[segment['id']], 'context_provenance': {
+                        **approved[segment['id']].get('context_provenance', {}), 'human_reviewed': True}}
+            atomic_json(self.run.root / 'sentence-timeline.json', timeline)
             gate["issues"] = [issue for issue in gate["issues"] if issue.get("segment_id") not in approved]
             gate_path = self.run.root / "dialogue-gate.json"
             atomic_json(gate_path, gate)
@@ -145,6 +154,9 @@ class V2Pipeline(V1Pipeline):
                     audio = Path(mixed["audio"])
             else:
                 self.run.skip("AUDIO_MIX", "No generated voice; original soundtrack retained")
+            manifest_path = self.run.root / 'timeline.json'
+            atomic_json(manifest_path, timeline_manifest(segments, ocr_data, clips, read_result(mixed)))
+            self.run.execute('TIMELINE_MANIFEST', lambda: {'artifacts': [str(manifest_path)]})
             subtitles = self.run.root / "subtitles.srt"
             write_subtitles(subtitles, segments if self.config.get("subtitle_mode") != "off" else [])
             self.run.execute("SUBTITLE_RENDER", lambda: {"artifacts": [str(subtitles)]})

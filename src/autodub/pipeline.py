@@ -478,7 +478,8 @@ class Pipeline:
                            ("run_report_md", engine.run.root / "run-report.md"),
                            ("checkpoint", engine.checkpoint),
                            ("preview_video", engine.run.root / "preview.mp4"),
-                           ("character_context", engine.run.root / "character-context.json")):
+                           ("character_context", engine.run.root / "character-context.json"),
+                           ("timeline_manifest", engine.run.root / "timeline.json")):
             if path.is_file():
                 self._register_artifact(ep_id, kind, path)
         if report.get("output_video"):

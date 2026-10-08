@@ -1,36 +1,35 @@
-# Subtitle-line event OCR
+# Subtitle events and independent speech timelines
 
-The production V2 scanner now follows: locate a dialogue subtitle line, detect
-changes inside that line, then batch recognition of the selected line images.
-The PP-OCRv6 model, CUDA-only execution and fixed voice remain unchanged.
+V2 scans every source frame inside the subtitle ROI using outlined-white-stroke
+geometry. Saved/reviewed regions are reused; automatic localization also uses
+geometry, without full OCR. Other colors and layouts still need quality review.
+Short events survive. A scene cut does not automatically close unchanged text.
+Each visual event supplies its sharpest representative to the existing PP-OCRv6
+Medium CUDA recognizer, in batches of at most eight images. Equal adjacent text
+fragments are merged; the same text after an absence is a separate event.
+Unrecognized visible text is reported. Background donors never cross scenes.
 
-Initial localization uses the same OCR engine in the configured lower search
-area, at most once per second until a suitable line is found. The automatic
-rule selects a bottom-center white line separately from colored decoration and
-corner logos. It is a style heuristic, not a calibrated dialogue classifier.
-Other layouts should provide `subtitle_line_roi` as normalized full-frame
-`x`, `y`, `w`, `h`. Invalid or out-of-search-area rectangles are rejected.
+OCR timestamps use original source PTS normalized by the shared source origin.
+FFprobe supplies timestamps; OpenCV materializes each frame for the cheap scan.
+This is CPU decoding, not a claim of NVDEC acceleration. Final restoration still
+has its separate zero-origin CFR guard. OCR VFR support does not remove that guard.
 
-After localization, changes are measured on white strokes next to dark outlines
-inside the selected line band. Selected images are cropped to their observed
-stroke extent. Up to eight line images are submitted together to RapidOCR's
-`text_rec` API. Its recognizer assembles a batched ONNX tensor; this is not a
-loop of eight full detector/classifier/recognizer calls. The final partial batch
-is flushed, and result order is checked against input order. Empty-line and
-scene transitions flush pending recognition before closing events.
+Audio/OCR matches split eligible ASR paragraphs into individual sentences.
+Unmatched audio text is preserved for review. Complete chronological native word
+coverage owns precise speech bounds. Otherwise display-event bounds provide an
+explicit OCR_EVENT_ESTIMATE, not forced alignment. No equally spaced word times
+are fabricated. Accurate speech synchronization remains unverified for estimates.
+Speech bounds and subtitle display bounds are independent contract fields.
 
-The decoder uses `grab` for intervening frames and `retrieve` only for sampled
-frames. This avoids materializing every full BGR frame, but compressed video
-still requires decoding dependencies. It does not claim that only sampled
-frames are decoded. Restoration and final encoding still process the full
-source timeline.
+The downloadable timeline.json joins results by segment ID and records source
+text, polygons mapped back to source pixels, display/speech intervals, provenance,
+estimated flags, WAVs and actual mix positions. Human review remains authoritative.
+Voice placement uses absolute 48kHz PCM offsets. Only near-zero outer silence is
+trimmed, preserving 10ms edge context. A clip up to 1.25 times its slot may be
+fitted without changing pitch. Larger overruns and overlaps are reported; later
+sentences never shift and speech is not truncated. Ngọc Huyền and models are fixed.
 
-Reports distinguish decoded frames, materialized frames, calibration calls,
-recognition batch calls and the selected subtitle rectangle. Calibration and
-recognition have separate timing metrics. A missing line is reported for ROI
-review. Subtitle positions that move outside the selected band, unusual styles,
-two simultaneous lines and fades require further validation.
-
-The previous trial took 102.002 seconds for 30 seconds of source video.
-This replacement has not yet been benchmarked on cloud; neither a five-second
-completion time nor the hour-in-ten-minutes target is verified.
+The previous 30-second trial took 86.142 seconds. Calibration cost 37.794 seconds;
+recognition cost 16.036 seconds. This replacement removes full-OCR calibration.
+Its performance, event recall, Chinese CER and synchronization accuracy require
+a new frozen cloud run and labeled evidence. The five-second target is unverified.
