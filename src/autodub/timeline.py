@@ -51,7 +51,11 @@ def sentence_timeline(segments: list[dict], events: list[dict], tolerance_ms: in
                     or speech_right < left - tolerance_ms or speech_right > right + tolerance_ms):
                 # CTC may assign a word the preceding silence. A matched caption
                 # bounds placement; preserve original word times as evidence only.
-                speech_left, speech_right, native = left, right, False
+                speech_left = max(left - tolerance_ms, min(speech_left, right + tolerance_ms))
+                speech_right = min(right + tolerance_ms, max(speech_right, left - tolerance_ms))
+                if speech_right <= speech_left:
+                    speech_left, speech_right = left, right
+                native = False
             evidence = {**parent['dialogue_evidence'], 'parent_segment_id': parent['id'],
                 'ocr_event_ids': [event['id']], 'asr_char_range': [left_char, right_char],
                 'speech_timing_estimated': not native, 'subtitle_timing_source': 'VIDEO_PTS',

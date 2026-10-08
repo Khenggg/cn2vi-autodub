@@ -180,7 +180,7 @@ def test_partial_caption_fragments_keep_the_complete_display_interval():
 def test_native_alignment_cannot_place_a_captioned_word_in_preceding_silence():
     value = parent(zh_text='你好', words=[{'t': '你好', 's': 100, 'e': 1900}], timing_source='NATIVE_WORDS')
     result = sentence_timeline([value], captions()[:1])['segments'][0]
-    assert (result['start_ms'], result['end_ms']) == (1000, 2000)
+    assert (result['start_ms'], result['end_ms']) == (700, 1900)
     assert result['timing_source'] == 'OCR_EVENT_ESTIMATE' and result['words'] == []
     assert result['dialogue_evidence']['native_speech_bounds_ms'] == [100, 1900]
 

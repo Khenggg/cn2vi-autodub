@@ -346,7 +346,9 @@ def scan(source: Path, config: dict, *, engine_factory=build_engine) -> dict:
             x0, x1 = (max(0, int(xs.min()) - 3), min(right - left, int(xs.max()) + 4)) if present else (0, right - left)
             box = [[left + x0, upper], [left + x1, upper], [left + x1, lower], [left + x0, lower]]
             # The mask locates text; preserve original antialiasing for recognition.
-            row = tracker.update(at, signature, crop, box, line_image[:, x0:x1], scene)
+            # Reviewed ROI already isolates the subtitle line. Incomplete white
+            # strokes must not crop away characters from the recognizer image.
+            row = tracker.update(at, signature, crop, box, line_image, scene)
             enqueue(row, crop if not present else None)
             if not present:
                 last_clean = (at, crop.copy(), scene)
