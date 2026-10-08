@@ -12,6 +12,7 @@ from autodub.adapters.subtitle_tracking import (
     template_matches,
 )
 from autodub.adapters.v2_mix import RATE, trim_silent_edges
+from autodub.adapters.v1_audio import sentence_segments
 from autodub.contracts import Segment
 from autodub.timeline import sentence_timeline, timeline_manifest, validated_subtitle_profile
 from autodub.v1_pipeline import write_subtitles
@@ -150,3 +151,13 @@ def test_failed_or_ambiguous_ocr_cannot_destroy_the_previous_subtitle_layout():
     good = {'subtitle_profile': {'line_roi': previous['line_roi']}}
     result = validated_subtitle_profile(good, [parent(dialogue_evidence={'audio_ocr_similarity': 0.95})], previous)
     assert result['validated_by'] == 'AUDIO_OCR_TEXT_MATCH_UNCALIBRATED'
+
+
+def test_native_clause_boundaries_do_not_reuse_the_asr_processing_window():
+    value = parent(zh_text='你好，再见。', words=[
+        {'t': '你好', 's': 1100, 'e': 1800}, {'t': '再见', 's': 3200, 'e': 3800}])
+    result = sentence_segments(value, split_commas=True)
+    assert [(s['start_ms'], s['end_ms']) for s in result] == [(1100, 1800), (3200, 3800)]
+    assert len({s['id'] for s in result}) == 2
+    one = sentence_segments(parent(zh_text='你好。', words=[{'t': '你好', 's': 1100, 'e': 1800}]), split_commas=True)
+    assert (one[0]['start_ms'], one[0]['end_ms']) == (1100, 1800)

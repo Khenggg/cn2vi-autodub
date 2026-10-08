@@ -94,7 +94,8 @@ class V2Pipeline(V1Pipeline):
         recognized = self.stage("ASR", "V2_ASR", audio, candidates_path=detected["artifacts"][0])
         if not recognized or not read_result(recognized).get("segments"):
             return recognized
-        punctuated = self.stage("PUNCTUATION", "V2_PUNCTUATION", audio, transcript_path=recognized["artifacts"][0])
+        punctuated = self.stage("PUNCTUATION", "V2_PUNCTUATION", audio, transcript_path=recognized["artifacts"][0],
+                                split_native_utterances=True)
         return punctuated or recognized
 
     def _video_branch(self):

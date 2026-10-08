@@ -241,14 +241,14 @@ def punctuate(source: Path, config: dict) -> dict:
     for segment, row in zip(segments, rows, strict=True):
         segment["asr_text"] = segment["zh_text"]
         segment["zh_text"] = row["punc_text"]
-        split_segments.extend(sentence_segments(segment))
+        split_segments.extend(sentence_segments(segment, split_commas=bool(config.get('split_native_utterances', False))))
     value["segments"] = split_segments
     return _result(config, "punctuation.json", value, [manifest, code_manifest],
         {"model_load_ms": load_ms, "inference_ms": (time.perf_counter() - tick) * 1000},
         degraded=bool(value.get("issues")))
 
 
-def sentence_segments(segment: dict) -> list[dict]:
+def sentence_segments(segment: dict, *, split_commas: bool = False) -> list[dict]:
     """Split punctuation at native word boundaries only; never invent word times."""
     words = segment.get("words", [])
     text = segment["zh_text"]
@@ -267,7 +267,8 @@ def sentence_segments(segment: dict) -> list[dict]:
             end += 1
         piece = text[cursor:end]
         current.append(word)
-        if any(char in piece for char in "。！？!?；;"):
+        boundaries = "。！？!?；;，," if split_commas else "。！？!?；;"
+        if any(char in piece for char in boundaries):
             groups.append((current, text[:end] if not groups else text[cursor_start:end]))
             current = []
             cursor_start = end
@@ -277,6 +278,8 @@ def sentence_segments(segment: dict) -> list[dict]:
     if current:
         groups.append((current, text[cursor_start:]))
     if len(groups) <= 1:
+        if split_commas and words:
+            return [{**segment, 'start_ms': words[0]['s'], 'end_ms': words[-1]['e']}]
         return [segment]
     return [{**segment, "id": f"{segment['id']}:s{index}", "start_ms": group[0]["s"],
              "end_ms": group[-1]["e"], "words": group, "zh_text": wording,

@@ -88,7 +88,8 @@ def test_event_ocr_reuses_static_text_and_records_clean_donors(tmp_path, monkeyp
     monkeypatch.setattr(subtitle_events, 'recognize_lines',
                         lambda engine, images, batch_size: [('你好', 0.95) for image in images])
     monkeypatch.setenv("AUTODUB_WORKER_OUTPUT", str(tmp_path / "ocr"))
-    result = v2_vision.scan(source, {"duration_ms": 2000})
+    result = v2_vision.scan(source, {"duration_ms": 2000, 'subtitle_line_roi': {
+        'x': 0.25, 'y': 0.58, 'w': 0.5, 'h': 0.18}})
     report = json.loads(Path(result["artifacts"][0]).read_text())
     assert report["decoded_frames"] == 20
     assert calls == []  # Localization must not invoke the full OCR detector.
