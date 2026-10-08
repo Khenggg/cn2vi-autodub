@@ -52,13 +52,76 @@ def changed_line(previous, current):
 
 
 def recognize_lines(engine, images, batch_size):
-    """RapidOCR's recognizer makes one batched ONNX call, not N engine calls."""
+    """Width-bucketed ONNX batches with a bounded padded-tensor budget."""
+    import cv2
+    import numpy as np
     from rapidocr.ch_ppocr_rec.main import TextRecInput
 
     if not 1 <= len(images) <= batch_size <= 16:
         raise ValueError('Subtitle recognition batch exceeds memory bounds')
-    engine.text_rec.rec_batch_num = batch_size
-    output = engine.text_rec(TextRecInput(img=images, return_word_box=False))
-    if len(output.txts) != len(images) or len(output.scores) != len(images):
-        raise ValueError('Subtitle batch lost frame association')
-    return list(zip(output.txts, output.scores, strict=True))
+    prepared = []
+    for index, image in enumerate(images):
+        if image.ndim != 3 or image.shape[2] != 3 or not image.size:
+            raise ValueError('Invalid subtitle line image')
+        # Thin stroke bands must not be enlarged into extremely wide ONNX tensors.
+        # Padding preserves glyph proportions, rather than stretching the text.
+        height = image.shape[0]
+        if height < 32:
+            padding = 32 - height
+            image = cv2.copyMakeBorder(image, padding // 2, padding - padding // 2, 0, 0,
+                                      cv2.BORDER_CONSTANT, value=(0, 0, 0))
+        prepared.append((index, np.ascontiguousarray(image)))
+    shape = getattr(engine.text_rec, 'rec_image_shape', (3, 48, 320))
+    rec_height, base_width = shape[1:3]
+
+    def width(row):
+        image = row[1]
+        return max(base_width, round(rec_height * image.shape[1] / image.shape[0]))
+
+    ordered = sorted(prepared, key=width)
+    output_rows = [None] * len(images)
+    while ordered:
+        group = []
+        while ordered and len(group) < batch_size:
+            candidate = ordered[0]
+            # Bound padded tensor area, so one wide line cannot inflate eight peers.
+            if group and width(candidate) * (len(group) + 1) > 2048:
+                break
+            group.append(ordered.pop(0))
+        engine.text_rec.rec_batch_num = batch_size
+        batch = [row[1] for row in group]
+        metadata = {'size': len(batch), 'normalized_width': max(width(row) for row in group),
+                    'input_shapes': [list(image.shape) for image in batch]}
+        if not hasattr(engine, 'autodub_rec_batches'):
+            engine.autodub_rec_batches = []
+        engine.autodub_rec_batches.append(metadata)
+        try:
+            output = engine.text_rec(TextRecInput(img=batch, return_word_box=False))
+        except Exception as error:
+            record_recognition_failure(error, metadata)
+            raise
+        if len(output.txts) != len(group) or len(output.scores) != len(group):
+            raise ValueError('Subtitle batch lost frame association')
+        for (index, _), text, score in zip(group, output.txts, output.scores, strict=True):
+            output_rows[index] = (text, score)
+    return output_rows
+
+
+def record_recognition_failure(error, metadata):
+    """Keep safe numeric diagnosis, never raw exception/traceback/credentials."""
+    import os
+    import re
+    from pathlib import Path
+
+    from autodub.storage import atomic_json
+
+    output = os.environ.get('AUTODUB_WORKER_OUTPUT')
+    if not output:
+        return
+    match = re.search(r'Available memory of (\d+) is smaller than requested bytes of (\d+)', str(error))
+    diagnostic = {'error_type': type(error).__name__, 'batch': metadata,
+                  'category': 'OCR_RUNTIME_FAILURE'}
+    if match:
+        diagnostic.update(category='OCR_GPU_ARENA_EXHAUSTED', available_bytes=int(match[1]),
+                          requested_bytes=int(match[2]))
+    atomic_json(Path(output) / 'ocr-failure.json', diagnostic)

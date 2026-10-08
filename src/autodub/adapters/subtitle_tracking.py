@@ -87,7 +87,9 @@ def recognition_slices(image):
             if index + 1 - start >= 3:
                 ranges.append((max(0, start - 3), min(len(rows), index + 4)))
             start = None
-    return [(image[upper:lower], upper, lower) for upper, lower in ranges] or [(image, 0, len(image))]
+    if len(ranges) <= 1:
+        return [(image, 0, len(image))]  # Retain complete line context for one-line subtitles.
+    return [(image[upper:lower], upper, lower) for upper, lower in ranges]
 
 
 class SubtitleTracker:
@@ -290,17 +292,20 @@ def scan(source: Path, config: dict, *, engine_factory=build_engine) -> dict:
         'y': (top + band[1] * (bottom - top) / scaled_height) / height,
         'w': (band[2] - band[0]) / scaled_width, 'h': (band[3] - band[1]) * (bottom - top) / scaled_height / height}
     target = folder / 'ocr-events.json'
+    actual_batches = getattr(engine, 'autodub_rec_batches', [])
+    batch_sizes = [batch['size'] for batch in actual_batches] if actual_batches else batches
     atomic_json(target, {'schema_version': 1, 'events': events, 'frames': frames, 'issues': issues,
         'source_sha256': sha256_file(source), 'width': width, 'height': height,
         'crop': [top, bottom, scaled_width, scaled_height], 'decoded_frames': count, 'materialized_frames': count,
-        'ocr_calls': len(batches), 'calibration_calls': 0, 'calibration_ms': 0,
-        'recognition_batch_calls': len(batches), 'recognized_line_images': sum(batches),
-        'recognition_batch_sizes': batches, 'recognition_ms': recognition_ms,
+        'ocr_calls': len(batch_sizes), 'calibration_calls': 0, 'calibration_ms': 0,
+        'recognition_batch_calls': len(batch_sizes), 'recognized_line_images': sum(batch_sizes),
+        'recognition_batch_sizes': batch_sizes, 'recognition_batch_shapes': actual_batches,
+        'recognition_ms': recognition_ms,
         'scan_policy': 'ALL_SOURCE_FRAMES_ROI_ONLY', 'timing_source': 'VIDEO_PTS', 'source_time_origin_seconds': origin,
         'subtitle_line_roi': roi, 'subtitle_profile': {'y': top / height, 'h': (bottom - top) / height, 'line_roi': roi},
         'provider': 'CUDAExecutionProvider', 'event_recall': None, 'character_error_rate': None,
         'timing_error_p95_ms': None, 'visual_event_tracker': 'OUTLINED_WHITE_TEXT_UNCALIBRATED'})
-    return {**identity([manifest]), 'artifacts': [str(target), *saved_paths], 'ocr_calls': len(batches),
+    return {**identity([manifest]), 'artifacts': [str(target), *saved_paths], 'ocr_calls': len(batch_sizes),
         'metrics': {'model_load_ms': load_ms, 'inference_ms': (time.perf_counter() - tick) * 1000,
                     'calibration_ms': 0, 'recognition_ms': recognition_ms},
         'stage_status': 'DEGRADED' if issues else 'SUCCESS', 'quality_evidence': {'issues': issues}}

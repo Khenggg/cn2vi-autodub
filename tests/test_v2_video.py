@@ -142,7 +142,42 @@ def test_recognition_submits_one_batch_and_keeps_original_image_order(monkeypatc
 
     images = [np.zeros((32, 40, 3), dtype='uint8'), np.zeros((32, 180, 3), dtype='uint8')]
     result = subtitle_events.recognize_lines(SimpleNamespace(text_rec=Recognizer()), images, 8)
-    assert len(calls) == 1 and calls[0] is images
+    assert len(calls) == 1
+    assert all(np.array_equal(left, right) for left, right in zip(calls[0], images, strict=True))
     assert result == [('短', 0.9), ('长句', 0.95)]
     with pytest.raises(ValueError):
         subtitle_events.recognize_lines(SimpleNamespace(), images * 10, 8)
+
+
+def test_width_buckets_pad_thin_rows_and_restore_id_order(monkeypatch):
+    import sys
+
+    monkeypatch.setitem(sys.modules, 'rapidocr.ch_ppocr_rec.main',
+                        SimpleNamespace(TextRecInput=SimpleNamespace))
+    calls = []
+
+    class Recognizer:
+        rec_image_shape = (3, 48, 320)
+
+        def __call__(self, args):
+            width = max(max(320, round(48 * image.shape[1] / image.shape[0])) for image in args.img)
+            assert width * len(args.img) <= 2048
+            assert all(image.shape[0] >= 32 for image in args.img)
+            calls.append(len(args.img))
+            return SimpleNamespace(txts=[str(int(image.max())) for image in args.img],
+                                   scores=[0.95] * len(args.img))
+
+    images = [np.full((9, width, 3), i + 1, dtype='uint8')
+              for i, width in enumerate([600, 50, 400, 60, 500, 70, 550, 80])]
+    result = subtitle_events.recognize_lines(SimpleNamespace(text_rec=Recognizer()), images, 8)
+    assert [text for text, score in result] == [str(i + 1) for i in range(8)]
+    assert len(calls) > 1
+
+
+def test_ocr_failure_diagnosis_retains_only_shapes_and_numeric_memory(tmp_path, monkeypatch):
+    monkeypatch.setenv('AUTODUB_WORKER_OUTPUT', str(tmp_path))
+    error = RuntimeError('PRIVATE_TOKEN Available memory of 30154240 is smaller than requested bytes of 88610560')
+    subtitle_events.record_recognition_failure(error, {'size': 8, 'normalized_width': 1184})
+    value = (tmp_path / 'ocr-failure.json').read_text()
+    assert 'PRIVATE_TOKEN' not in value
+    assert json.loads(value)['requested_bytes'] == 88610560
