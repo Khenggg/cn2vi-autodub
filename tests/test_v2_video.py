@@ -8,8 +8,7 @@ import cv2
 import numpy as np
 import pytest
 
-from autodub.adapters import v2_vision
-from autodub.adapters import subtitle_events
+from autodub.adapters import subtitle_events, v2_vision
 from autodub.storage import atomic_json, sha256_file
 
 

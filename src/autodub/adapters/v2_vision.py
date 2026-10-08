@@ -9,7 +9,6 @@ from bisect import bisect_right
 from fractions import Fraction
 from pathlib import Path
 
-from autodub.adapters.common import identity
 from autodub.adapters.ocr import build_engine
 from autodub.adapters.runtime_paths import output_folder, run_file
 from autodub.storage import atomic_json, sha256_file
