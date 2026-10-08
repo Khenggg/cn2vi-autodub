@@ -76,9 +76,15 @@ def run(source: Path, config: dict) -> dict:
     voice = np.memmap(backing, dtype="float32", mode="w+", shape=(samples,))
     voice[:] = 0
     issues, added, used = [], [], []
+    tolerance_ms = int(config.get('subtitle_timing_tolerance_ms', 300))
+    if not 0 <= tolerance_ms <= 300:
+        raise ValueError('Voice timing tolerance exceeds approved 300ms')
+    tolerance = round(tolerance_ms * RATE / 1000)
+    ordered = [s for s in sorted(config['segments'], key=lambda s: (s['start_ms'], s['id']))
+               if s['action'] == 'DUB' and s['id'] in config['clips']]
     tick = time.perf_counter()
     try:
-        for segment in sorted(config["segments"], key=lambda s: (s["start_ms"], s["id"])):
+        for index, segment in enumerate(ordered):
             sid = segment["id"]
             if segment["action"] != "DUB" or sid not in config["clips"]:
                 continue
@@ -91,10 +97,22 @@ def run(source: Path, config: dict) -> dict:
             left, right = round(segment["start_ms"] * RATE / 1000), round(segment["end_ms"] * RATE / 1000)
             if not 0 <= left < right <= samples:
                 raise ValueError("Voice slot exceeds source timeline")
-            if any(left < end and begin < right for begin, end in used):
+            original_left, original_right = left, right
+            left = max(left, used[-1][1] if used else 0)
+            if left - original_left > tolerance:
                 issues.append({"segment_id": sid, "code": "OVERLAPPING_VOICE_SLOT_PRESERVED"})
                 continue
-            factor = len(clip) / (right - left)
+            next_start = round(ordered[index + 1]['start_ms'] * RATE / 1000) if index + 1 < len(ordered) else samples
+            allowed_end = min(samples, original_right + tolerance, next_start + tolerance)
+            if allowed_end <= left:
+                issues.append({'segment_id': sid, 'code': 'OVERLAPPING_VOICE_SLOT_PRESERVED'})
+                continue
+            factor = len(clip) / max(1, right - left)
+            if factor > 1.25:
+                right = allowed_end
+                # Use the existing speed ceiling before consuming extra timing
+                # allowance, so neighbouring short cues do not accumulate drift.
+                factor = max(1.25, len(clip) / (right - left))
             if factor > 1.25:
                 issues.append({"segment_id": sid, "code": "TTS_TOO_LONG_NO_TRUNCATION", "duration_ratio": factor})
                 continue
@@ -113,10 +131,13 @@ def run(source: Path, config: dict) -> dict:
                     continue
             end = left + len(clip)
             voice[left:end] += clip
-            used.append((left, max(right, end)))
-            added.append({"segment_id": sid, "start_ms": segment["start_ms"],
+            used.append((left, end))
+            added.append({"segment_id": sid, "start_ms": round(left * 1000 / RATE),
                           "end_ms": round(end * 1000 / RATE), 'start_sample': left,
                           'slot_end_ms': segment['end_ms'], 'source_timing': segment.get('timing_source', 'UNKNOWN'),
+                          'source_start_ms': segment['start_ms'],
+                          'placement_start_drift_ms': round((left - original_left) * 1000 / RATE),
+                          'allowed_end_ms': round(allowed_end * 1000 / RATE),
                           'trimmed_leading_ms': round(leading * 1000 / RATE),
                           'trimmed_trailing_ms': round(trailing * 1000 / RATE),
                           'unfitted_duration_ms': unaligned_ms, 'time_stretch_factor': max(1, factor)})

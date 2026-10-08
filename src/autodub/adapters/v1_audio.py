@@ -241,6 +241,10 @@ def punctuate(source: Path, config: dict) -> dict:
     for segment, row in zip(segments, rows, strict=True):
         segment["asr_text"] = segment["zh_text"]
         segment["zh_text"] = row["punc_text"]
+        if config.get('split_native_utterances'):
+            segment['dialogue_evidence'] = {**segment.get('dialogue_evidence', {}), 'asr_parent': {
+                'id': segment['id'], 'zh_text': segment['zh_text'],
+                'start_ms': segment['start_ms'], 'end_ms': segment['end_ms']}}
         split_segments.extend(sentence_segments(segment, split_commas=bool(config.get('split_native_utterances', False))))
     value["segments"] = split_segments
     return _result(config, "punctuation.json", value, [manifest, code_manifest],

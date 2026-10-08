@@ -6,6 +6,7 @@ import pytest
 
 from autodub.adapters.subtitle_tracking import (
     SubtitleTracker,
+    coalesce_caption_fragments,
     frame_timestamps,
     recognition_slices,
     same_shape,
@@ -14,6 +15,7 @@ from autodub.adapters.subtitle_tracking import (
 from autodub.adapters.v1_audio import sentence_segments
 from autodub.adapters.v2_mix import RATE, trim_silent_edges
 from autodub.contracts import Segment
+from autodub.multimodal import merge_dialogue
 from autodub.timeline import sentence_timeline, timeline_manifest, validated_subtitle_profile
 from autodub.v1_pipeline import write_subtitles
 
@@ -161,3 +163,32 @@ def test_native_clause_boundaries_do_not_reuse_the_asr_processing_window():
     assert len({s['id'] for s in result}) == 2
     one = sentence_segments(parent(zh_text='你好。', words=[{'t': '你好', 's': 1100, 'e': 1800}]), split_commas=True)
     assert (one[0]['start_ms'], one[0]['end_ms']) == (1100, 1800)
+
+
+def test_partial_caption_fragments_keep_the_complete_display_interval():
+    def event(eid, start, end, text):
+        return {**captions()[0], 'id': eid, 'start_ms': start, 'end_ms': end, 'text': text,
+                'boxes': [], 'observed_frames': 1, 'scene_ids': [0], 'donors': []}
+    result = coalesce_caption_fragments([
+        event('a', 1000, 1400, '因为我头发长'), event('b', 1400, 1500, '我头'),
+        event('c', 1500, 1700, '因'), event('d', 1800, 2400, '因为我头发长'),
+        event('noise', 2400, 2500, 'I'), event('next', 2500, 3000, '我头发也长')], 300)
+    assert [(e['text'], e['start_ms'], e['end_ms']) for e in result] == [
+        ('因为我头发长', 1000, 2400), ('我头发也长', 2500, 3000)]
+
+
+def test_native_alignment_cannot_place_a_captioned_word_in_preceding_silence():
+    value = parent(zh_text='你好', words=[{'t': '你好', 's': 100, 'e': 1900}], timing_source='NATIVE_WORDS')
+    result = sentence_timeline([value], captions()[:1])['segments'][0]
+    assert (result['start_ms'], result['end_ms']) == (1000, 2000)
+    assert result['timing_source'] == 'OCR_EVENT_ESTIMATE' and result['words'] == []
+    assert result['dialogue_evidence']['native_speech_bounds_ms'] == [100, 1900]
+
+
+def test_last_music_clause_cannot_escape_parent_audio_ocr_conflict():
+    value = parent(id='tail', start_ms=5000, end_ms=6000, zh_text='去触摸奇迹',
+        dialogue_evidence={'asr_parent': {'id': 'music', 'zh_text': '让我变成会飞行的鱼去触摸奇迹',
+                                        'start_ms': 1000, 'end_ms': 6000}})
+    result = merge_dialogue([value], captions())['segments'][0]
+    assert result['action'] == 'KEEP' and result['needs_review']
+    assert result['dialogue_evidence']['ambiguity_reason'] == 'ASR_PARENT_AUDIO_OCR_CONFLICT'

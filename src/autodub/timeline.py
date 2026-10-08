@@ -8,7 +8,7 @@ from autodub.contracts import Segment
 from autodub.multimodal import lexical
 
 
-def sentence_timeline(segments: list[dict], events: list[dict]) -> dict:
+def sentence_timeline(segments: list[dict], events: list[dict], tolerance_ms: int = 300) -> dict:
     output, issues, relations = [], [], []
     for raw in segments:
         parent = Segment.model_validate(raw).model_dump()
@@ -46,9 +46,16 @@ def sentence_timeline(segments: list[dict], events: list[dict]) -> dict:
                     char_at = word_end
             native = bool(words) and lexical(''.join(w['t'] for w in words)) == source[left_char:right_char]
             speech_left, speech_right = (words[0]['s'], words[-1]['e']) if native else (left, right)
+            native_bounds = [speech_left, speech_right] if native else None
+            if native and (speech_left < left - tolerance_ms or speech_left > right + tolerance_ms
+                    or speech_right < left - tolerance_ms or speech_right > right + tolerance_ms):
+                # CTC may assign a word the preceding silence. A matched caption
+                # bounds placement; preserve original word times as evidence only.
+                speech_left, speech_right, native = left, right, False
             evidence = {**parent['dialogue_evidence'], 'parent_segment_id': parent['id'],
                 'ocr_event_ids': [event['id']], 'asr_char_range': [left_char, right_char],
                 'speech_timing_estimated': not native, 'subtitle_timing_source': 'VIDEO_PTS',
+                'native_speech_bounds_ms': native_bounds,
                 'source_asr_window_ms': [parent['start_ms'], parent['end_ms']]}
             child = {**parent, 'id': sid, 'zh_text': source[left_char:right_char],
                 'asr_text': source[left_char:right_char], 'start_ms': speech_left, 'end_ms': speech_right,

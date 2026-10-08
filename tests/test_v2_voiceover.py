@@ -154,6 +154,25 @@ def test_long_tts_is_reported_and_never_truncated(tmp_path, monkeypatch):
     assert result["stage_status"] == "DEGRADED"
 
 
+def test_adjacent_short_voices_use_bounded_tolerance_without_cumulative_drift(tmp_path, monkeypatch):
+    ffmpeg = shutil.which('ffmpeg')
+    if not ffmpeg:
+        pytest.skip('FFmpeg media checks run on Ubuntu/CI')
+    source, clip = tmp_path / 'source.wav', tmp_path / 'clip.wav'
+    write_wav(source, np.zeros(RATE * 5))
+    write_wav(clip, np.ones(round(RATE * .7)) * .03)
+    monkeypatch.setenv('AUTODUB_WORKER_OUTPUT', str(tmp_path / 'output'))
+    monkeypatch.setenv('AUTODUB_WORKER_RUN_ROOT', str(tmp_path))
+    segments = [segment(id=f's{i}', start_ms=1000 + i * 500, end_ms=1500 + i * 500,
+                        action='DUB', dub_vi='Chào bạn') for i in range(3)]
+    result = mix(source, {'duration_ms': 5000, 'segments': segments,
+        'clips': {s['id']: str(clip) for s in segments}, 'ffmpeg_bin': ffmpeg})
+    report = json.loads(Path(result['artifacts'][0]).read_text())
+    assert report['voice_added_count'] == 3
+    assert all(0 <= row['placement_start_drift_ms'] <= 300 for row in report['voice_added'])
+    assert all(a['end_ms'] <= b['start_ms'] for a, b in zip(report['voice_added'], report['voice_added'][1:], strict=False))
+
+
 def test_v2_running_prevents_delete_and_preserves_api_secret(client, app, uploaded, monkeypatch):
     monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-PRIVATE_NEVER_RETURN")
     app.state.db.execute("UPDATE episode SET status='V2_RUNNING' WHERE id=?", (uploaded["id"],))

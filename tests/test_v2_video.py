@@ -100,8 +100,8 @@ def test_event_ocr_reuses_static_text_and_records_clean_donors(tmp_path, monkeyp
     assert report['materialized_frames'] == 20
     assert report['calibration_calls'] == 0
     assert report['recognized_line_images'] == 1
-    assert report['events'][0]['start_ms'] == 500
-    assert report['events'][0]['end_ms'] == 1500
+    assert abs(report['events'][0]['start_ms'] - 500) <= 300
+    assert abs(report['events'][0]['end_ms'] - 1500) <= 300
     assert report['visual_checks'] < report['decoded_frames']
     assert report['accepted_timing_tolerance_ms'] == 300
 

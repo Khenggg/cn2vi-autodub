@@ -110,6 +110,38 @@ def template_matches(reference, raw):
     return same_shape(reference, raw & region)
 
 
+def coalesce_caption_fragments(events, tolerance_ms):
+    """Reunite brief partial glyph observations with their complete caption."""
+    from autodub.multimodal import lexical
+
+    output = []
+    for raw in events:
+        event = dict(raw)
+        text = lexical(event['text'])
+        # A lone Latin/digit stroke inside this Chinese subtitle style is noise.
+        if len(text) == 1 and text.isascii():
+            continue
+        if output:
+            previous = output[-1]
+            before = lexical(previous['text'])
+            gap = event['start_ms'] - previous['end_ms']
+            partial = min(event['end_ms'] - event['start_ms'],
+                          previous['end_ms'] - previous['start_ms']) <= tolerance_ms
+            if (0 <= gap <= tolerance_ms and previous['kind'] == event['kind']
+                    and (before == text or partial and (before in text or text in before))):
+                if len(text) > len(before):
+                    previous.update(text=event['text'], score=event['score'])
+                previous['end_ms'] = event['end_ms']
+                previous['boxes'] += [box for box in event['boxes'] if box not in previous['boxes']]
+                previous['observed_frames'] += event['observed_frames']
+                previous['scene_ids'] = sorted(set(previous['scene_ids'] + event['scene_ids']))
+                if len(previous['scene_ids']) > 1:
+                    previous['donors'] = []
+                continue
+        output.append(event)
+    return output
+
+
 class SubtitleTracker:
     """Bounded visual state; short events survive and cuts do not end text."""
 
@@ -293,6 +325,10 @@ def scan(source: Path, config: dict, *, engine_factory=build_engine) -> dict:
                 if tracker.current and scene not in tracker.current['scene_ids']:
                     tracker.current['scene_ids'].append(scene)
             previous_scene = small
+            if at - last_visual_check < sample_ms:
+                continue
+            last_visual_check = at
+            visual_checks += 1
             crop = cv2.resize(image[top:bottom], (scaled_width, scaled_height))
             if band is None:
                 band = locate_band(subtitle_events.line_signature(crop))
@@ -302,12 +338,6 @@ def scan(source: Path, config: dict, *, engine_factory=build_engine) -> dict:
             line_image = crop[upper:lower, left:right]
             raw_signature = subtitle_events.line_signature(line_image)
             matches = bool(tracker.current and template_matches(tracker.current['mask'], raw_signature))
-            # Check stable text at 5Hz; a changed/missing template wakes the scan
-            # immediately, preserving short transitions between periodic samples.
-            if matches and at - last_visual_check < sample_ms:
-                continue
-            last_visual_check = at
-            visual_checks += 1
             signature = subtitle_events.glyph_signature(line_image, expected_height)
             if matches:
                 signature = tracker.current['mask'].copy()
@@ -328,6 +358,8 @@ def scan(source: Path, config: dict, *, engine_factory=build_engine) -> dict:
         capture.release()
     if band is None:
         issues.append({'code': 'SUBTITLE_LINE_NOT_LOCATED', 'action': 'REVIEW_ROI'})
+    raw_event_count = len(events)
+    events = coalesce_caption_fragments(events, tolerance_ms)
     roi = None if band is None else {'x': band[0] / scaled_width,
         'y': (top + band[1] * (bottom - top) / scaled_height) / height,
         'w': (band[2] - band[0]) / scaled_width, 'h': (band[3] - band[1]) * (bottom - top) / scaled_height / height}
@@ -341,6 +373,7 @@ def scan(source: Path, config: dict, *, engine_factory=build_engine) -> dict:
         'recognition_batch_calls': len(batch_sizes), 'recognized_line_images': sum(batch_sizes),
         'recognition_batch_sizes': batch_sizes, 'recognition_batch_shapes': actual_batches,
         'recognition_ms': recognition_ms,
+        'raw_event_count': raw_event_count,
         'visual_checks': visual_checks, 'event_sample_ms': sample_ms,
         'accepted_timing_tolerance_ms': tolerance_ms,
         'scan_policy': 'ALL_SOURCE_FRAMES_ROI_ONLY', 'timing_source': 'VIDEO_PTS', 'source_time_origin_seconds': origin,

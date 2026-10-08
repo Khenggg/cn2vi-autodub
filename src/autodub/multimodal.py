@@ -108,6 +108,19 @@ def decide(segment: dict, events: list[dict]) -> dict:
 
 def merge_dialogue(segments: list[dict], events: list[dict]) -> dict:
     result = [decide(s, events) for s in segments]
+    parents = {}
+    for source, child in zip(segments, result, strict=True):
+        parent = source.get('dialogue_evidence', {}).get('asr_parent')
+        if not parent or child['dialogue_kind'] != 'UNSUBTITLED_DIALOGUE':
+            continue
+        if parent['id'] not in parents:
+            parents[parent['id']] = decide({**source, **parent, 'words': []}, events)
+        decision = parents[parent['id']]
+        if decision['dialogue_evidence'].get('ambiguity_reason') == 'AUDIO_OCR_CONFLICT':
+            # A comma at the end of a conflicting music transcription must not
+            # turn its last clause into new foreground dialogue without evidence.
+            child.update(action='KEEP', dialogue_kind='AMBIGUOUS', needs_review=True, speech_kind='unknown')
+            child['dialogue_evidence']['ambiguity_reason'] = 'ASR_PARENT_AUDIO_OCR_CONFLICT'
     return {"schema_version": 1, "segments": result,
             "issues": [{"segment_id": s["id"], "code": "AMBIGUOUS_DIALOGUE", "evidence": s["dialogue_evidence"]}
                        for s in result if s["needs_review"]],
