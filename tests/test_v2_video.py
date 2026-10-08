@@ -102,6 +102,8 @@ def test_event_ocr_reuses_static_text_and_records_clean_donors(tmp_path, monkeyp
     assert report['recognized_line_images'] == 1
     assert report['events'][0]['start_ms'] == 500
     assert report['events'][0]['end_ms'] == 1500
+    assert report['visual_checks'] < report['decoded_frames']
+    assert report['accepted_timing_tolerance_ms'] == 300
 
 
 def test_locate_dialogue_line_excludes_yellow_title_and_logo():
@@ -192,3 +194,14 @@ def test_glyph_mask_rejects_colored_title_and_tall_background_edges():
     cv2.putText(image, 'TITLE', (0, 35), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
     image[:, 280:285] = 255
     assert np.array_equal(before, subtitle_events.glyph_signature(image))
+
+
+def test_reviewed_font_height_rejects_noise_but_preserves_lowercase():
+    image = np.zeros((54, 320, 3), dtype='uint8')
+    cv2.putText(image, 'baby', (100, 36), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+    before = subtitle_events.glyph_signature(image, expected_height=20)
+    assert np.count_nonzero(before) > 0
+    # White background edge and tiny mark inside the watched horizontal region.
+    image[1:52, 220:225] = 255
+    image[8:12, 80:84] = 255
+    assert np.array_equal(before, subtitle_events.glyph_signature(image, expected_height=20))

@@ -457,6 +457,7 @@ class Pipeline:
             config.update(source_sha256=episode["source_sha256"],
                           subtitle_profile=config["series_memory"].get("subtitle_profile", {}),
                           translation_model="deepseek-flash", asr_batch_size=4, tts_batch_size=8,
+                          event_sample_ms=200, subtitle_timing_tolerance_ms=300,
                           ocr_require_cuda=True, model_process_policy="One resident model per batched stage; GPU compute serialized, CPU/API lanes concurrent")
             config["approved_segments"] = [json.loads(row["contract_json"]) for row in self.db.rows(
                 "SELECT contract_json FROM segment WHERE episode_id=? AND status='APPROVED' ORDER BY start_ms,id", (ep_id,))]

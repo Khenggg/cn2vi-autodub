@@ -107,7 +107,7 @@ def recognize_lines(engine, images, batch_size):
     return output_rows
 
 
-def glyph_signature(image):
+def glyph_signature(image, expected_height=None):
     """Keep aligned, font-sized white components; reject large background edges."""
     import cv2
     import numpy as np
@@ -120,8 +120,11 @@ def glyph_signature(image):
     components = []
     for label in range(1, count):
         x, y, w, h, area = stats[label]
-        if max(6, height * 0.2) <= h <= height * 0.85 and 2 <= w <= h * 16 and area >= 12:
+        if max(6, height * 0.2) <= h <= height and 2 <= w <= h * 16 and area >= 12:
             components.append((label, x, y, w, h))
+    if components:
+        font_height = float(expected_height) if expected_height else float(np.median([c[4] for c in components]))
+        components = [c for c in components if font_height * 0.6 <= c[4] <= font_height * 1.4]
     groups = []
     for component in components:
         bottom = component[2] + component[4]

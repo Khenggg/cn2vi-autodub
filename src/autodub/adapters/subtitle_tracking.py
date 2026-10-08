@@ -196,6 +196,15 @@ def scan(source: Path, config: dict, *, engine_factory=build_engine) -> dict:
     events, frames, pending, batches, issues, saved_paths = [], [], [], [], [], []
     tracker = SubtitleTracker()
     previous_scene, last_clean, scene, count = None, None, 0, 0
+    sample_ms = int(config.get('event_sample_ms', 200))
+    tolerance_ms = int(config.get('subtitle_timing_tolerance_ms', 300))
+    if not 0 < sample_ms <= tolerance_ms:
+        capture.release()
+        raise ValueError('OCR sampling interval exceeds accepted timing tolerance')
+    last_visual_check = -sample_ms
+    visual_checks = 0
+    expected_height = profile.get('font_height_fraction')
+    expected_height = float(expected_height) * height * scaled_width / width if expected_height else None
     recognition_ms = 0.0
     tick = time.perf_counter()
 
@@ -281,6 +290,8 @@ def scan(source: Path, config: dict, *, engine_factory=build_engine) -> dict:
             if previous_scene is not None and float(np.mean(np.abs(small - previous_scene))) > 45:
                 scene += 1
                 last_clean = None
+                if tracker.current and scene not in tracker.current['scene_ids']:
+                    tracker.current['scene_ids'].append(scene)
             previous_scene = small
             crop = cv2.resize(image[top:bottom], (scaled_width, scaled_height))
             if band is None:
@@ -289,8 +300,16 @@ def scan(source: Path, config: dict, *, engine_factory=build_engine) -> dict:
                     continue
             left, upper, right, lower = band
             line_image = crop[upper:lower, left:right]
-            signature = subtitle_events.glyph_signature(line_image)
-            if tracker.current and template_matches(tracker.current['mask'], subtitle_events.line_signature(line_image)):
+            raw_signature = subtitle_events.line_signature(line_image)
+            matches = bool(tracker.current and template_matches(tracker.current['mask'], raw_signature))
+            # Check stable text at 5Hz; a changed/missing template wakes the scan
+            # immediately, preserving short transitions between periodic samples.
+            if matches and at - last_visual_check < sample_ms:
+                continue
+            last_visual_check = at
+            visual_checks += 1
+            signature = subtitle_events.glyph_signature(line_image, expected_height)
+            if matches:
                 signature = tracker.current['mask'].copy()
             ys, xs = np.nonzero(signature)
             present = len(xs) >= 8
@@ -322,8 +341,11 @@ def scan(source: Path, config: dict, *, engine_factory=build_engine) -> dict:
         'recognition_batch_calls': len(batch_sizes), 'recognized_line_images': sum(batch_sizes),
         'recognition_batch_sizes': batch_sizes, 'recognition_batch_shapes': actual_batches,
         'recognition_ms': recognition_ms,
+        'visual_checks': visual_checks, 'event_sample_ms': sample_ms,
+        'accepted_timing_tolerance_ms': tolerance_ms,
         'scan_policy': 'ALL_SOURCE_FRAMES_ROI_ONLY', 'timing_source': 'VIDEO_PTS', 'source_time_origin_seconds': origin,
-        'subtitle_line_roi': roi, 'subtitle_profile': {'y': top / height, 'h': (bottom - top) / height, 'line_roi': roi},
+        'subtitle_line_roi': roi, 'subtitle_profile': {'y': top / height, 'h': (bottom - top) / height,
+            'line_roi': roi, 'font_height_fraction': profile.get('font_height_fraction')},
         'provider': 'CUDAExecutionProvider', 'event_recall': None, 'character_error_rate': None,
         'timing_error_p95_ms': None, 'visual_event_tracker': 'OUTLINED_WHITE_TEXT_UNCALIBRATED'})
     return {**identity([manifest]), 'artifacts': [str(target), *saved_paths], 'ocr_calls': len(batch_sizes),
