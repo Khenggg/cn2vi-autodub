@@ -6,6 +6,7 @@ import math
 import sys
 import time
 import wave
+from contextlib import contextmanager
 from pathlib import Path
 
 from autodub.adapters.common import configure_offline, identity
@@ -16,6 +17,23 @@ from autodub.storage import atomic_json, sha256_file
 
 RATE = 16000
 FRAME_MS = 30
+
+
+@contextmanager
+def native_alignment_float32():
+    """FireRed may emit BF16 CTC probabilities; torchaudio alignment rejects BF16."""
+    import torchaudio
+
+    original = torchaudio.functional.forced_align
+
+    def align(log_probs, *args, **kwargs):
+        return original(log_probs.float().contiguous(), *args, **kwargs)
+
+    torchaudio.functional.forced_align = align
+    try:
+        yield
+    finally:
+        torchaudio.functional.forced_align = original
 
 
 def candidate_windows(flags: list[bool], duration_ms: int, *, padding_ms: int = 180,
@@ -145,7 +163,8 @@ def recognize(source: Path, config: dict) -> dict:
                     ids.append(f"seg_{left:012d}_{index:06d}")
                     paths.append(str(wav))
                 tick = time.perf_counter()
-                rows = model.transcribe(ids, paths)
+                with native_alignment_float32():
+                    rows = model.transcribe(ids, paths)
                 inference_ms += (time.perf_counter() - tick) * 1000
                 # FireRed's feature extractor sorts the batch; returned utterance
                 # IDs, not the original position, own the absolute time window.

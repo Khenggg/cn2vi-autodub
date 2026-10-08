@@ -84,6 +84,8 @@ def test_asr_batches_original_audio_without_inventing_word_times(tmp_path, monke
                      "timestamp": self._get_and_fix_timestamp({"timestamp": None}, [1, 2], 1.0)} for identifier in reversed(ids)]
 
     module = SimpleNamespace(FireRedAsr2=Model, FireRedAsr2Config=lambda **kwargs: kwargs)
+    monkeypatch.setitem(sys.modules, 'torchaudio', SimpleNamespace(
+        functional=SimpleNamespace(forced_align=lambda *args, **kwargs: None)))
     monkeypatch.setitem(sys.modules, "fireredasr2s.fireredasr2.asr", module)
     monkeypatch.setattr(v2_speech, "asset", lambda config, identifier: (tmp_path, {
         "id": identifier, "model_revision": "pinned", "weights_sha256": "hash"}))

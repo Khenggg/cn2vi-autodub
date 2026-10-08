@@ -9,6 +9,7 @@ from autodub.adapters.subtitle_tracking import (
     frame_timestamps,
     recognition_slices,
     same_shape,
+    template_matches,
 )
 from autodub.adapters.v2_mix import RATE, trim_silent_edges
 from autodub.contracts import Segment
@@ -124,3 +125,14 @@ def test_two_subtitle_lines_are_separate_recognizer_inputs():
     image[40:52, 30:100] = 255
     lines = recognition_slices(image)
     assert len(lines) == 2 and lines[0][2] < lines[1][1]
+
+
+def test_existing_glyph_template_ignores_unrelated_background_but_detects_changed_strokes():
+    reference = np.zeros((32, 100), dtype='uint8')
+    reference[10:25, 20:23] = 1
+    reference[10:13, 20:35] = 1
+    raw = reference.copy()
+    raw[:, 80:85] = 1
+    assert template_matches(reference, raw)
+    raw[10:25, 30:33] = 1
+    assert not template_matches(reference, raw)

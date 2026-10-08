@@ -92,6 +92,19 @@ def recognition_slices(image):
     return [(image[upper:lower], upper, lower) for upper, lower in ranges]
 
 
+def template_matches(reference, raw):
+    """Compare existing glyph coordinates, ignoring unrelated background outside."""
+    import numpy as np
+
+    ys, xs = np.nonzero(reference)
+    if not len(xs):
+        return False
+    region = np.zeros_like(raw)
+    region[max(0, int(ys.min()) - 1):min(raw.shape[0], int(ys.max()) + 2),
+           max(0, int(xs.min()) - 1):min(raw.shape[1], int(xs.max()) + 2)] = 1
+    return same_shape(reference, raw & region)
+
+
 class SubtitleTracker:
     """Bounded visual state; short events survive and cuts do not end text."""
 
@@ -272,6 +285,8 @@ def scan(source: Path, config: dict, *, engine_factory=build_engine) -> dict:
             left, upper, right, lower = band
             line_image = crop[upper:lower, left:right]
             signature = subtitle_events.glyph_signature(line_image)
+            if tracker.current and template_matches(tracker.current['mask'], subtitle_events.line_signature(line_image)):
+                signature = tracker.current['mask'].copy()
             ys, xs = np.nonzero(signature)
             present = len(xs) >= 8
             x0, x1 = (max(0, int(xs.min()) - 3), min(right - left, int(xs.max()) + 4)) if present else (0, right - left)
