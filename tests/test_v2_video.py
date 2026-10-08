@@ -12,6 +12,19 @@ from autodub.adapters import v2_vision
 from autodub.storage import atomic_json, sha256_file
 
 
+def test_text_change_ignores_motion_outside_observed_boxes_but_detects_replacement():
+    image = np.zeros((64, 256, 3), dtype="uint8")
+    cv2.putText(image, "OLD", (80, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+    boxes = [[[75, 15], [130, 15], [130, 45], [75, 45]]]
+    before = v2_vision.text_signature(image)
+    moving = image.copy()
+    moving[:, 170:] = np.random.default_rng(42).integers(0, 256, moving[:, 170:].shape, dtype="uint8")
+    assert not v2_vision.signature_changed(before, v2_vision.text_signature(moving), boxes, image.shape)
+    moving[15:46, 75:131] = 0
+    cv2.putText(moving, "NEW", (80, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+    assert v2_vision.signature_changed(before, v2_vision.text_signature(moving), boxes, image.shape)
+
+
 def source_video(tmp_path):
     ffmpeg = shutil.which("ffmpeg")
     if not ffmpeg:

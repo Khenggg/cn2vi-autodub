@@ -62,6 +62,21 @@ def test_homophones_use_hanzi_evidence_without_overwriting_conflicting_text():
     assert result["dialogue_evidence"]["homophone_corrections"]
 
 
+def test_caption_sequence_confirms_paragraph_without_fabricated_word_times():
+    payload = segment("你先走，我马上来。不要等我。", end_ms=8000)
+    events = [{"id": str(i), "start_ms": 1000 + i * 1500, "end_ms": 2500 + i * 1500,
+               "kind": "DIALOGUE", "score": 0.95, "text": text}
+              for i, text in enumerate(["你先走", "我马上来", "不要等我"])]
+    result = decide(payload, events)
+    assert result["action"] == "DUB"
+    assert result["dialogue_evidence"]["audio_ocr_sequence_coverage"] == 1
+    assert result["words"] == [] and result["timing_source"] == "VAD_WINDOW"
+    repeated = [dict(events[0], id=str(i)) for i in range(8)]
+    assert decide(payload, repeated)["action"] == "KEEP"
+    reversed_events = [dict(event, text=events[2 - i]["text"]) for i, event in enumerate(events)]
+    assert decide(payload, reversed_events)["action"] == "KEEP"
+
+
 def test_recovery_changes_only_observed_mask_pixels_and_rejects_wrong_background():
     clean = np.full((80, 160, 3), (80, 40, 20), dtype="uint8")
     frame = clean.copy()

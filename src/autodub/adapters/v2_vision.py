@@ -24,6 +24,26 @@ def text_signature(image):
     return (gray.astype("int16") - background.astype("int16") > 25).astype("uint8")
 
 
+def signature_changed(previous, current, boxes, image_shape):
+    """Watch known text rectangles; heartbeat still discovers newly placed text."""
+    import cv2
+    import numpy as np
+
+    if previous is None:
+        return True
+    region = np.ones_like(current)
+    if boxes:
+        region.fill(0)
+        scale = np.array([current.shape[1] / image_shape[1], current.shape[0] / image_shape[0]])
+        for box in boxes:
+            polygon = np.round(np.asarray(box) * scale).astype("int32")
+            cv2.fillPoly(region, [polygon], 1)
+        region = cv2.dilate(region, np.ones((3, 3), dtype="uint8"))
+    changed = np.count_nonzero((current != previous) & (region > 0))
+    strokes = np.count_nonzero((current | previous) & region)
+    return changed / max(16, strokes) > 0.15
+
+
 def glyph_mask(image, boxes):
     import cv2
     import numpy as np
@@ -83,6 +103,7 @@ def scan(source: Path, config: dict) -> dict:
     scaled_width = min(640, width)
     scaled_height = max(32, round((bottom - top) * scaled_width / width))
     last_signature = previous_scene = None
+    watched_boxes = []
     last_ocr_ms, frame_index, scene = -10000, 0, 0
     current, last_clean = None, None
     events, frames, saved_paths = [], [], []
@@ -106,12 +127,11 @@ def scan(source: Path, config: dict) -> dict:
                 if current:
                     current["end_ms"] = at
                 current, last_clean, last_signature = None, None, None
+                watched_boxes = []
                 scene += 1
             crop = cv2.resize(image[top:bottom], (scaled_width, scaled_height))
             signature = text_signature(crop)
-            changed = last_signature is None or (
-                float(np.count_nonzero(signature != last_signature)) /
-                max(16, np.count_nonzero(signature | last_signature)) > 0.15)
+            changed = signature_changed(last_signature, signature, watched_boxes, crop.shape)
             if not changed and at - last_ocr_ms < heartbeat_ms:
                 if current:
                     current["end_ms"] = min(config["duration_ms"], at + round(sample_step * 1000 / fps))
@@ -123,6 +143,7 @@ def scan(source: Path, config: dict) -> dict:
                 for box, text, score in zip(output.boxes, output.txts, output.scores, strict=True):
                     if float(score) >= 0.5:
                         lines.append({"box": box.tolist(), "text": str(text), "score": float(score)})
+            watched_boxes = [line["box"] for line in lines]
             frames.append({"at_ms": at, "scene_id": scene, "lines": lines})
             kind = classify_text(lines, scaled_height, scaled_width)
             text = "".join(line["text"] for line in lines)

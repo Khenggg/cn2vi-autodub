@@ -35,6 +35,33 @@ def canonical_text(asr: str, ocr: str) -> tuple[str, list[dict]]:
     return "".join(chars), replacements
 
 
+def sequence_evidence(text: str, events: list[dict]) -> dict:
+    """Match successive captions to a paragraph without inventing speech timing.
+
+    Captions can contain decorative titles. Count only ordered matching spans of
+    the ASR, and never let repeated captions count the same characters twice.
+    """
+    source = lexical(text)
+    cursor, covered, matches = 0, 0, []
+    for event in sorted(events, key=lambda e: (e["start_ms"], e["end_ms"])):
+        caption = lexical(event["text"])
+        blocks = SequenceMatcher(None, source[cursor:], caption, autojunk=False).get_matching_blocks()
+        accepted = [block for block in blocks if block.size >= 2]
+        if not accepted:
+            continue
+        size = sum(block.size for block in accepted)
+        # Isolated shared characters and largely unrelated title text are weak evidence.
+        if size / max(1, len(caption)) < 0.5:
+            continue
+        start = cursor
+        covered += size
+        cursor += max(block.a + block.size for block in accepted)
+        matches.append({"event_id": event["id"], "asr_start_char": start,
+                        "asr_end_char": cursor, "matched_chars": size})
+    return {"audio_ocr_sequence_coverage": covered / max(1, len(source)),
+            "ordered_caption_matches": matches}
+
+
 def decide(segment: dict, events: list[dict]) -> dict:
     value = Segment.model_validate(segment).model_dump()
     relevant = [event for event in events
@@ -62,8 +89,10 @@ def decide(segment: dict, events: list[dict]) -> dict:
         best = max(dialogue, key=lambda e: SequenceMatcher(None, lexical(text), lexical(e["text"])).ratio())
         similarity = SequenceMatcher(None, lexical(text), lexical(best["text"])).ratio()
         evidence["audio_ocr_similarity"] = similarity
+        sequence = sequence_evidence(text, dialogue)
+        evidence.update(sequence)
         canonical, corrections = canonical_text(text, best["text"])
-        if similarity >= 0.7 or corrections:
+        if similarity >= 0.7 or corrections or sequence["audio_ocr_sequence_coverage"] >= 0.7:
             value["zh_text"] = canonical
             evidence["homophone_corrections"] = corrections
             kind, action, review = "DIALOGUE", "DUB", False
