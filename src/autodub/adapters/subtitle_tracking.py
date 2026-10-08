@@ -28,13 +28,12 @@ def frame_timestamps(source, ffprobe='ffprobe'):
 
 def locate_band(mask):
     """Locate outlined white line geometry without running an OCR detector."""
+    import cv2
     import numpy as np
 
     height, width = mask.shape
     left, right = round(width * 0.15), round(width * 0.85)
     rows = np.count_nonzero(mask[:, left:right], axis=1) >= 3
-    import cv2
-
     _, _, components, _ = cv2.connectedComponentsWithStats(mask.astype('uint8'))
     runs, start = [], None
     # Join short vertical gaps inside glyphs, keeping separate distant lines.

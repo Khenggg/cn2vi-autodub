@@ -11,8 +11,8 @@ from autodub.adapters.subtitle_tracking import (
     same_shape,
     template_matches,
 )
-from autodub.adapters.v2_mix import RATE, trim_silent_edges
 from autodub.adapters.v1_audio import sentence_segments
+from autodub.adapters.v2_mix import RATE, trim_silent_edges
 from autodub.contracts import Segment
 from autodub.timeline import sentence_timeline, timeline_manifest, validated_subtitle_profile
 from autodub.v1_pipeline import write_subtitles
