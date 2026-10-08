@@ -181,3 +181,13 @@ def test_ocr_failure_diagnosis_retains_only_shapes_and_numeric_memory(tmp_path, 
     value = (tmp_path / 'ocr-failure.json').read_text()
     assert 'PRIVATE_TOKEN' not in value
     assert json.loads(value)['requested_bytes'] == 88610560
+
+
+def test_glyph_mask_rejects_colored_title_and_tall_background_edges():
+    image = np.zeros((48, 320, 3), dtype='uint8')
+    cv2.putText(image, 'WORDS', (110, 35), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+    before = subtitle_events.glyph_signature(image)
+    assert np.count_nonzero(before) > 0
+    cv2.putText(image, 'TITLE', (0, 35), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+    image[:, 280:285] = 255
+    assert np.array_equal(before, subtitle_events.glyph_signature(image))

@@ -107,6 +107,42 @@ def recognize_lines(engine, images, batch_size):
     return output_rows
 
 
+def glyph_signature(image):
+    """Keep aligned, font-sized white components; reject large background edges."""
+    import cv2
+    import numpy as np
+
+    raw = line_signature(image)
+    joined = cv2.morphologyEx(raw, cv2.MORPH_CLOSE, np.ones((5, 2), dtype='uint8'))
+    joined = cv2.dilate(joined, np.ones((2, 2), dtype='uint8'))
+    count, labels, stats, _ = cv2.connectedComponentsWithStats(joined)
+    height, width = raw.shape
+    components = []
+    for label in range(1, count):
+        x, y, w, h, area = stats[label]
+        if max(6, height * 0.2) <= h <= height * 0.85 and 2 <= w <= h * 16 and area >= 12:
+            components.append((label, x, y, w, h))
+    groups = []
+    for component in components:
+        bottom = component[2] + component[4]
+        group = next((g for g in groups if abs(g[0] - bottom) <= 4), None)
+        if group is None:
+            groups.append([bottom, [component]])
+        else:
+            group[1].append(component)
+    eligible = []
+    for _, components in groups:
+        left = min(c[1] for c in components)
+        right = max(c[1] + c[3] for c in components)
+        if width * 0.2 <= (left + right) / 2 <= width * 0.8:
+            eligible.append(components)
+    if not eligible:
+        return np.zeros_like(raw)
+    best = max(eligible, key=lambda group: (len(group), sum(c[4] for c in group)))
+    kept = [c[0] for group in eligible if len(group) >= max(1, len(best) // 2) for c in group]
+    return raw & np.isin(labels, kept).astype('uint8')
+
+
 def record_recognition_failure(error, metadata):
     """Keep safe numeric diagnosis, never raw exception/traceback/credentials."""
     import os

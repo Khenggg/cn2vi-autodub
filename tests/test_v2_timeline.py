@@ -120,7 +120,7 @@ def test_pts_preserves_variable_frame_intervals_and_shared_source_origin(monkeyp
 
 def test_two_subtitle_lines_are_separate_recognizer_inputs():
     image = np.zeros((64, 120, 3), dtype='uint8')
-    image[10:16, 20:90] = 255
-    image[40:46, 30:100] = 255
+    image[10:22, 20:90] = 255
+    image[40:52, 30:100] = 255
     lines = recognition_slices(image)
     assert len(lines) == 2 and lines[0][2] < lines[1][1]
