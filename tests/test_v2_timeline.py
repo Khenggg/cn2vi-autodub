@@ -13,7 +13,7 @@ from autodub.adapters.subtitle_tracking import (
 )
 from autodub.adapters.v2_mix import RATE, trim_silent_edges
 from autodub.contracts import Segment
-from autodub.timeline import sentence_timeline, timeline_manifest
+from autodub.timeline import sentence_timeline, timeline_manifest, validated_subtitle_profile
 from autodub.v1_pipeline import write_subtitles
 
 
@@ -48,6 +48,10 @@ def test_native_speech_and_display_bounds_are_independent(tmp_path):
     path = tmp_path / 'subtitles.srt'
     write_subtitles(path, [first])
     assert '00:00:01,000 --> 00:00:02,000' in path.read_text()
+    narrowed = sentence_timeline([parent(start_ms=1100, end_ms=3800, words=words,
+                                         timing_source='NATIVE_WORDS')], captions())
+    assert narrowed['segments'][0]['subtitle_start_ms'] == 1000
+    assert narrowed['segments'][1]['subtitle_end_ms'] == 4000
 
 
 def test_unmatched_audio_is_preserved_for_review_and_singing_is_not_split():
@@ -136,3 +140,13 @@ def test_existing_glyph_template_ignores_unrelated_background_but_detects_change
     assert template_matches(reference, raw)
     raw[10:25, 30:33] = 1
     assert not template_matches(reference, raw)
+
+
+def test_failed_or_ambiguous_ocr_cannot_destroy_the_previous_subtitle_layout():
+    previous = {'line_roi': {'x': 0.15, 'y': 0.8, 'w': 0.7, 'h': 0.1}, 'validated_by': 'USER_REVIEW'}
+    assert validated_subtitle_profile({}, [], previous) == previous
+    bad = {'subtitle_profile': {'line_roi': {'x': 0.15, 'y': 0.55, 'w': 0.7, 'h': 0.06}}}
+    assert validated_subtitle_profile(bad, [parent(action='KEEP')], previous) == previous
+    good = {'subtitle_profile': {'line_roi': previous['line_roi']}}
+    result = validated_subtitle_profile(good, [parent(dialogue_evidence={'audio_ocr_similarity': 0.95})], previous)
+    assert result['validated_by'] == 'AUDIO_OCR_TEXT_MATCH_UNCALIBRATED'

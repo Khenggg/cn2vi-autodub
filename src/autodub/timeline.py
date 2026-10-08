@@ -28,7 +28,7 @@ def sentence_timeline(segments: list[dict], events: list[dict]) -> dict:
             if match.size < 2 or match.size / len(caption) < 0.8:
                 continue
             left_char, right_char = cursor + match.a, cursor + match.a + match.size
-            left, right = max(parent['start_ms'], event['start_ms']), min(parent['end_ms'], event['end_ms'])
+            left, right = event['start_ms'], event['end_ms']
             if right <= left:
                 continue
             sid = parent['id'] + ':sentence:' + hashlib.sha256(
@@ -109,3 +109,14 @@ def timeline_manifest(segments: list[dict], ocr: dict, clips: dict, mix: dict) -
             'action': segment.action, 'evidence': segment.dialogue_evidence})
     return {'schema_version': 1, 'records': records, 'clock': 'SOURCE_PRESENTATION_TIMESTAMPS',
             'join_key': 'segment_id', 'voice_positions': 'ABSOLUTE_PCM_SAMPLE_OFFSETS'}
+
+
+def validated_subtitle_profile(ocr, segments, previous):
+    """A failed/ambiguous OCR pass must never erase or replace a known layout."""
+    profile = ocr.get('subtitle_profile', {})
+    supported = any(s.get('action') == 'DUB' and (
+        s.get('dialogue_evidence', {}).get('audio_ocr_similarity', 0) >= 0.7
+        or s.get('dialogue_evidence', {}).get('audio_ocr_sequence_coverage', 0) >= 0.7) for s in segments)
+    if profile.get('line_roi') and supported:
+        return {**profile, 'validated_by': 'AUDIO_OCR_TEXT_MATCH_UNCALIBRATED'}
+    return dict(previous)

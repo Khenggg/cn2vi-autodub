@@ -12,7 +12,7 @@ from autodub.checkpoint import fingerprint
 from autodub.model_runner import ModelRunner
 from autodub.multimodal import merge_dialogue
 from autodub.storage import atomic_json, sha256_file
-from autodub.timeline import sentence_timeline, timeline_manifest
+from autodub.timeline import sentence_timeline, timeline_manifest, validated_subtitle_profile
 from autodub.v1_pipeline import RunDrained, V1Pipeline, read_result, write_subtitles
 
 
@@ -174,7 +174,8 @@ class V2Pipeline(V1Pipeline):
             if self.best_video == self.source:
                 self.run.issue("FINAL_ENCODE", "ORIGINAL_SOURCE_ONLY", downstream_effect="No rendered final artifact")
             atomic_json(self.run.root / "series-memory.json", {**update_memory(self.config.get("series_memory", {}), segments, self.run.id),
-                        "subtitle_profile": ocr_data.get("subtitle_profile", {})})
+                        "subtitle_profile": validated_subtitle_profile(ocr_data, gate['segments'],
+                                                                       self.config.get('subtitle_profile', {}))})
             self.run.report.update(api_calls=translation.get("api_calls", []) if translation else [],
                 selected_models=json.loads((self.run.root / "snapshot/config/cloud-runtime.json").read_text())["assets"],
                 soundtrack_policy="MULTIBAND_VOICEOVER", separation_used=False, generative_video_model=None,

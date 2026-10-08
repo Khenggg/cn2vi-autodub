@@ -33,6 +33,9 @@ def locate_band(mask):
     height, width = mask.shape
     left, right = round(width * 0.15), round(width * 0.85)
     rows = np.count_nonzero(mask[:, left:right], axis=1) >= 3
+    import cv2
+
+    _, _, components, _ = cv2.connectedComponentsWithStats(mask.astype('uint8'))
     runs, start = [], None
     # Join short vertical gaps inside glyphs, keeping separate distant lines.
     for index in range(height):
@@ -42,7 +45,10 @@ def locate_band(mask):
             end = index + 1
             if 5 <= end - start <= height * 0.4:
                 ys, xs = np.nonzero(mask[start:end, left:right])
-                if len(xs) >= 24 and width * 0.25 <= left + float(np.mean(xs)) <= width * 0.75:
+                font_components = [c for c in components[1:] if c[4] >= 8 and c[2] >= 2
+                    and max(5, (end - start) * 0.4) <= c[3] <= (end - start) * 1.3
+                    and c[1] >= start - 2 and c[1] + c[3] <= end + 2]
+                if len(font_components) >= 3 and len(xs) >= 24 and width * 0.25 <= left + float(np.mean(xs)) <= width * 0.75:
                     runs.append((start, end))
             start = None
     if not runs:
