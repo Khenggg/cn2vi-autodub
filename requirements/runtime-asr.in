@@ -9,3 +9,4 @@ sentencepiece==0.2.1
 soundfile==0.13.1
 cn2an==0.5.23
 peft==0.15.2
+webrtcvad-wheels==2.0.14

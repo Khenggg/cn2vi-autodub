@@ -71,7 +71,7 @@ RUN_GROUP="$(id -gn "${RUN_USER}")"
 "${SUDO[@]}" apt-get update
 "${SUDO[@]}" apt-get install -y --no-install-recommends \
   ca-certificates curl git unzip jq build-essential pkg-config \
-  ffmpeg libsndfile1 sox libsox-fmt-all libgl1 libglib2.0-0 \
+  ffmpeg libsndfile1 sox libsox-fmt-all libgl1 libglib2.0-0 espeak-ng libespeak-ng1 \
   fonts-dejavu-core fonts-liberation fonts-noto-core fonts-noto-cjk \
   python3 python3-venv python3-pip xz-utils tini
 
@@ -212,7 +212,8 @@ create_or_update_env() {
     separation) import_modules="torch,torchaudio,numpy,soundfile" ;;
     diarization) import_modules="torch,torchaudio,torchcodec,pyannote.audio" ;;
     indextts) import_modules="torch,torchaudio,librosa,audioread,soundfile,transformers,modelscope" ;;
-    vision) import_modules="torch,torchvision,cv2,onnxruntime,rapidocr" ;;
+    vision) import_modules="cv2,onnxruntime,rapidocr" ;;
+    tts) import_modules="torch,torchaudio,vieneu,soundfile" ;;
     *) import_modules="" ;;
   esac
   if [[ -n "$import_modules" ]]; then
@@ -220,7 +221,7 @@ create_or_update_env() {
   fi
 
   if [[ "${name}" == vision ]]; then
-    "${python}" -c 'import onnxruntime as ort; providers=ort.get_available_providers(); assert "CPUExecutionProvider" in providers, providers; print(f"verified ONNX Runtime CPU provider; providers={providers}")'
+    "${python}" -c 'import onnxruntime as ort; ort.preload_dlls(directory=""); providers=ort.get_available_providers(); assert "CUDAExecutionProvider" in providers, providers; print(f"verified ONNX Runtime CUDA provider; providers={providers}")'
   elif [[ "${name}" != core ]]; then
     # Verify torch and CUDA if torch is installed in this profile
     if "${python}" -c 'import torch' >/dev/null 2>&1; then

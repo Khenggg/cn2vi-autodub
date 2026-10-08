@@ -14,6 +14,9 @@ from pathlib import Path
 from typing import Any
 
 _INTERPRETER_STAGE = {
+    "V2_DETECT": "asr", "V2_ASR": "asr", "V2_PUNCTUATION": "asr",
+    "V2_OCR": "vision", "V2_TRANSLATION": "core", "V2_TTS": "tts",
+    "V2_MIX": "asr", "V2_RESTORE": "vision", "V2_ENCODE": "vision",
     "V1_SEPARATION": "separation", "V1_DIARIZATION": "diarization", "V1_ASR": "asr",
     "V1_PUNCTUATION": "punctuation", "V1_OCR": "vision", "V1_TRANSLATION": "core",
     "V1_TTS": "indextts", "V1_MIX": "separation", "V1_INPAINT": "vision",
@@ -101,6 +104,8 @@ class ModelRunner:
                                                   if os.environ.get("PYTHONPATH") else "")
             env["PYTHONIOENCODING"] = "utf-8"
             env["PYTHONUTF8"] = "1"
+            # Keep checksum-pinned upstream checkouts clean across model stages.
+            env["PYTHONDONTWRITEBYTECODE"] = "1"
             env["AUTODUB_WORKER_OUTPUT"] = str(output_root)
             env["AUTODUB_WORKER_RUN_ROOT"] = str(Path(job_config.get("run_root", output_root)).resolve())
             env["AUTODUB_WORKER_MODELS"] = str(Path(self.config.get("models_root", "/data/models")).resolve())

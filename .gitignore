@@ -20,3 +20,5 @@ output/
 uv.lock
 docs/API*.txt*
 *API*.txt*
+hf_token*.txt
+translation.env

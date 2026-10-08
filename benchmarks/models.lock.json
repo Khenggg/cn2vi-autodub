@@ -971,6 +971,19 @@
           "sha256": "e47acedf663230f8863ff1ab0e64dd2d82b838fceb5957146dab185a89d6215c"
         }
       ]
+    },
+    {
+      "id": "ngoc-huyen-reference",
+      "kind": "http",
+      "revision": "vieneu:d350c63fceb0792d7b2db9a51d61cc040b1f8efa/ngoc-huyen",
+      "files": [
+        {
+          "path": "reference.wav",
+          "url": "https://raw.githubusercontent.com/pnnbao97/VieNeu-TTS/d350c63fceb0792d7b2db9a51d61cc040b1f8efa/examples/audio_ref/example_ngoc_huyen.wav",
+          "bytes": 217166,
+          "sha256": "194625b4844e250683b442640abd4ae60d794540b9e915c879b9e98e2d11a734"
+        }
+      ]
     }
   ]
 }

@@ -39,7 +39,8 @@ def write_subtitles(path: Path, segments: list[dict]) -> None:
         text = segment.get("subtitle_vi", "").strip()
         if text:
             lines.extend([str(len(lines) // 4 + 1),
-                          f"{_srt_time(segment['start_ms'])} --> {_srt_time(segment['end_ms'])}",
+                        f"{_srt_time(segment.get('subtitle_start_ms') if segment.get('subtitle_start_ms') is not None else segment['start_ms'])} --> "
+                        f"{_srt_time(segment.get('subtitle_end_ms') if segment.get('subtitle_end_ms') is not None else segment['end_ms'])}",
                           text.replace("\r", " ").replace("\n", " "), ""])
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 

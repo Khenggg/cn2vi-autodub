@@ -103,6 +103,24 @@ def _run_separating(source: Path, config: dict) -> dict:
 
 
 def run_stage(stage: str, source: Path, config: dict) -> dict:
+    if stage in {"V2_DETECT", "V2_ASR"}:
+        from autodub.adapters.v2_speech import detect, recognize
+        return (detect if stage == "V2_DETECT" else recognize)(source, config)
+    if stage == "V2_PUNCTUATION":
+        from autodub.adapters.v1_audio import punctuate
+        return punctuate(source, config)
+    if stage == "V2_TRANSLATION":
+        from autodub.adapters.v2_translation import run
+        return run(source, config)
+    if stage == "V2_TTS":
+        from autodub.adapters.v2_tts import run
+        return run(source, config)
+    if stage == "V2_MIX":
+        from autodub.adapters.v2_mix import run
+        return run(source, config)
+    if stage in {"V2_OCR", "V2_RESTORE", "V2_ENCODE"}:
+        from autodub.adapters.v2_vision import encode, restoration_plan, scan
+        return {"V2_OCR": scan, "V2_RESTORE": restoration_plan, "V2_ENCODE": encode}[stage](source, config)
     if stage in {"V1_SEPARATION", "V1_DIARIZATION", "V1_ASR", "V1_PUNCTUATION"}:
         from autodub.adapters import v1_audio
         handler = {"V1_SEPARATION": v1_audio.separate, "V1_DIARIZATION": v1_audio.diarize,
@@ -164,7 +182,7 @@ def main(argv: list[str] | None = None) -> int:
         result = run_stage(stage, source, request["config"])
         if not isinstance(result, dict):
             return 3
-        if stage.startswith("V1_"):
+        if stage.startswith(("V1_", "V2_")):
             import importlib.metadata
             result["runtime_packages"] = {distribution.metadata["Name"]: distribution.version
                                           for distribution in importlib.metadata.distributions()

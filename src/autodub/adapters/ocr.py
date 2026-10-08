@@ -43,12 +43,37 @@ def dense_frame_times(source: Path, start_ms: int, end_ms: int, ffprobe_bin: str
 def build_engine(config: dict, *, resolve_asset=asset):
     from rapidocr import RapidOCR
     path, manifest = resolve_asset(config, config.get("ocr_asset_id", "rapidocr-v6"))
-    engine = RapidOCR(params={"Det.model_path": str(path / "det.onnx"),
+    params = {"Det.model_path": str(path / "det.onnx"),
                               "Rec.model_path": str(path / "rec.onnx"),
                               "Cls.model_path": str(path / "cls.onnx"),
                               "Global.model_root_dir": str(path), "Global.log_level": "warning",
                               "EngineConfig.onnxruntime.intra_op_num_threads": 4,
-                              "Global.text_score": float(config.get("text_score", 0.5))})
+                              "Global.text_score": float(config.get("text_score", 0.5))}
+    if config.get("ocr_require_cuda", False):
+        params.update({"Det.limit_type": "max", "Det.limit_side_len": 736})
+        import onnxruntime as ort
+        if hasattr(ort, "preload_dlls"):
+            ort.preload_dlls(directory="")
+        if "CUDAExecutionProvider" not in ort.get_available_providers():
+            raise RuntimeError("V2 requires ONNX Runtime CUDA; CPU execution is not a production fallback")
+        # Configure RapidOCR through primitive OmegaConf settings. Passing live
+        # InferenceSession objects through params is unsupported by its parser.
+        # Limit each arena to a third of the configured OCR arena budget.
+        options = {"device_id": int(config.get("ocr_device_id", 0)),
+                   "gpu_mem_limit": int(config.get("ocr_gpu_arena_bytes", 1073741824)) // 3,
+                   "arena_extend_strategy": "kSameAsRequested", "cudnn_conv_algo_search": "HEURISTIC"}
+        params.update({"EngineConfig.onnxruntime.use_cuda": True,
+                       "EngineConfig.onnxruntime.cuda_ep_cfg": options,
+                       "EngineConfig.onnxruntime.intra_op_num_threads": 2})
+        engine = RapidOCR(params=params)
+        sessions = [getattr(engine, component).session.session for component in ("text_det", "text_rec", "text_cls")]
+        for session in sessions:
+            if session.get_providers()[0] != "CUDAExecutionProvider":
+                raise RuntimeError("OCR session failed to initialize CUDA")
+            session.disable_fallback()
+        engine.autodub_cuda_sessions = tuple(sessions)
+    else:
+        engine = RapidOCR(params=params)
     return engine, manifest
 
 

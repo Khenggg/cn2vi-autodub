@@ -10,7 +10,7 @@ from pathlib import Path
 from autodub.adapters.local_translation import _messages, _parse_completion
 from autodub.adapters.runtime_paths import output_folder
 from autodub.contracts import Segment
-from autodub.storage import atomic_json
+from autodub.storage import atomic_json, safe_path
 
 
 def run(source: Path, config: dict) -> dict:
@@ -21,8 +21,11 @@ def run(source: Path, config: dict) -> dict:
     segments = [Segment.model_validate(s) for s in config["segments"]]
     result, issues, calls, proposals = [], [], [], []
     tick = time.perf_counter()
-    for start in range(0, len(segments), 10):
-        batch = segments[start:start + 10]
+    batch_size = int(config.get("translation_batch_size", 10))
+    if not 1 <= batch_size <= 48:
+        raise ValueError("Invalid translation batch size")
+    for start in range(0, len(segments), batch_size):
+        batch = segments[start:start + batch_size]
         messages = _messages(batch, config.get("glossary", {}), config)
         messages[0]["content"] += (
             " For this V1 request, the outer JSON must contain segments and character_context. "
@@ -36,7 +39,8 @@ def run(source: Path, config: dict) -> dict:
         )
         request = urllib.request.Request("https://api.deepseek.com/chat/completions", method="POST",
             headers={"Content-Type": "application/json", "Authorization": "Bearer " + key},
-            data=json.dumps({"model": "deepseek-chat", "temperature": 0.2, "max_tokens": 4096,
+            data=json.dumps({"model": config.get("translation_model", "deepseek-chat"), "temperature": 0.2,
+                             "max_tokens": int(config.get("translation_max_tokens", 4096)),
                              "response_format": {"type": "json_object"},
                              "messages": messages},
                             ensure_ascii=False).encode())
@@ -76,7 +80,10 @@ def run(source: Path, config: dict) -> dict:
                            "http_status": getattr(error, "code", None) if isinstance(getattr(error, "code", None), int) else None})
             result.extend(s.model_copy(update={"action": "KEEP", "needs_review": True}).model_dump()
                           for s in batch)
-    target = output_folder(config) / "translation.json"
+    folder = output_folder(config)
+    if config.get("translation_output_subdir"):
+        folder = safe_path(folder, config["translation_output_subdir"])
+    target = folder / "translation.json"
     atomic_json(target, {"schema_version": 1, "segments": result, "issues": issues, "api_calls": calls,
                          "provider": "DeepSeek", "model_fallbacks": [], "api_cost_vnd": None,
                          "context_proposals": proposals})

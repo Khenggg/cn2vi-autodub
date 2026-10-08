@@ -71,6 +71,11 @@ class Segment(StrictModel):
     context_provenance: dict[str, str | bool] = Field(default_factory=dict)
     confidence_calibrated: bool = False
     speech_kind: Literal["lexical", "nonverbal", "unknown"] = "unknown"
+    dialogue_kind: Literal["DIALOGUE", "UNSUBTITLED_DIALOGUE", "SINGING_OST", "NONLEXICAL", "AMBIGUOUS"] | None = None
+    timing_source: Literal["NATIVE_WORDS", "VAD_WINDOW", "OCR_EVENT_ESTIMATE", "UNKNOWN"] = "UNKNOWN"
+    subtitle_start_ms: int | None = Field(default=None, ge=0)
+    subtitle_end_ms: int | None = Field(default=None, gt=0)
+    dialogue_evidence: dict = Field(default_factory=dict)
     asr_text: str = ""
     action: Literal["DUB", "KEEP", "NEEDS_REVIEW"] = "KEEP"
     confidence: dict[str, float | None] = Field(default_factory=dict)
@@ -80,6 +85,10 @@ class Segment(StrictModel):
     def validate_timeline(self):
         if self.end_ms <= self.start_ms:
             raise ValueError("Empty segment")
+        if (self.subtitle_start_ms is None) != (self.subtitle_end_ms is None):
+            raise ValueError("Subtitle timeline needs both boundaries")
+        if self.subtitle_start_ms is not None and self.subtitle_end_ms <= self.subtitle_start_ms:
+            raise ValueError("Empty subtitle interval")
         for word in self.words:
             if not self.start_ms <= word.s < word.e <= self.end_ms:
                 raise ValueError("Word outside segment")

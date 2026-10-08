@@ -1,38 +1,25 @@
 {
   "schema_version": 1,
-  "pipeline_version": "CN2VI-V1",
-  "separation": "Bandit-v2-Multi-CASS",
-  "diarization": "pyannote Community-1",
+  "pipeline_version": "CN2VI-V2",
+  "soundtrack": "ORIGINAL_MULTIBAND_VOICEOVER",
+  "speech_detector": "WebRTC-VAD",
   "asr": "FireRedASR2-AED",
   "punctuation": "FireRedPunc",
-  "ocr": "PP-OCRv6 Medium",
-  "tts": "IndexTTS2 Vietnamese",
-  "inpainting": "ProPainter",
+  "translation": "deepseek-flash",
+  "tts": "VieNeu-TTS-v3-Turbo",
+  "voice_id": "Ngọc Huyền",
+  "ocr": "PP-OCRv6 Medium / CUDAExecutionProvider",
+  "restoration": "TEMPORAL_CLEAN_FRAME",
+  "encoder": "h264_nvenc",
   "model_fallbacks": false,
-  "profiles": [
-    "asr",
-    "diarization",
-    "punctuation",
-    "separation",
-    "indextts",
-    "vision"
-  ],
-  "assets": [
-    "bandit-v2-cinematic",
-    "bandit-infer-code",
-    "pyannote-community-1",
-    "firered-code",
-    "firered-asr2-aed",
-    "firered-punc",
-    "indextts-code",
-    "indextts2-vi",
-    "indextts-w2v",
-    "indextts-codec",
-    "indextts-speaker",
-    "indextts-vocoder",
-    "rapidocr-v6-medium",
-    "propainter-code",
-    "propainter-weights"
-  ],
-  "validation": "PENDING_FRESH_CLOUD_INSTALL_AND_REAL_MODEL_RUN"
+  "profiles": ["asr", "tts", "vision"],
+  "profile_assets": {
+    "asr": ["firered-code", "firered-asr2-aed", "firered-punc"],
+    "tts": ["vieneu-turbo", "moss-torch", "ngoc-huyen-reference"],
+    "vision": ["rapidocr-v6-medium"]
+  },
+  "assets": ["firered-code", "firered-asr2-aed", "firered-punc", "vieneu-turbo", "moss-torch", "ngoc-huyen-reference", "rapidocr-v6-medium"],
+  "validation": "PENDING_FRESH_CLOUD_V2_RUN",
+  "sla_target_seconds_per_source_hour": 600,
+  "sla_verified": false
 }
