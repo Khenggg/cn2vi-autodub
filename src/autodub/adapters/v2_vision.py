@@ -11,7 +11,7 @@ from pathlib import Path
 
 from autodub.adapters.common import identity
 from autodub.adapters.ocr import build_engine
-from autodub.adapters.runtime_paths import asset, output_folder, run_file
+from autodub.adapters.runtime_paths import output_folder, run_file
 from autodub.storage import atomic_json, sha256_file
 
 
@@ -80,117 +80,9 @@ def classify_text(lines: list[dict], crop_height: int, crop_width: int = 640) ->
 
 
 def scan(source: Path, config: dict) -> dict:
-    import cv2
-    import numpy as np
+    from autodub.adapters.subtitle_events import scan as scan_subtitles
 
-    folder = output_folder(config)
-    tick = time.perf_counter()
-    engine, manifest = build_engine({**config, "ocr_asset_id": "rapidocr-v6-medium", "ocr_require_cuda": True},
-                                   resolve_asset=asset)
-    load_ms = (time.perf_counter() - tick) * 1000
-    capture = cv2.VideoCapture(str(source))
-    if not capture.isOpened():
-        raise ValueError("Video decode unavailable")
-    width, height = int(capture.get(cv2.CAP_PROP_FRAME_WIDTH)), int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    fps = capture.get(cv2.CAP_PROP_FPS)
-    if fps <= 0:
-        raise ValueError("Video frame rate unavailable")
-    profile = config.get("subtitle_profile", {})
-    top = max(0, int(height * float(profile.get("y", 0.55))))
-    bottom = min(height, int(height * float(profile.get("y", 0.55) + profile.get("h", 0.43))))
-    if bottom <= top:
-        raise ValueError("Invalid automatic subtitle search area")
-    scaled_width = min(640, width)
-    scaled_height = max(32, round((bottom - top) * scaled_width / width))
-    last_signature = previous_scene = None
-    watched_boxes = []
-    last_ocr_ms, frame_index, scene = -10000, 0, 0
-    current, last_clean = None, None
-    events, frames, saved_paths = [], [], []
-    tick = time.perf_counter()
-    sample_step = max(1, round(fps * int(config.get("event_sample_ms", 200)) / 1000))
-    heartbeat_ms = int(config.get("ocr_heartbeat_ms", 4000))
-    try:
-        while True:
-            ok, image = capture.read()
-            if not ok:
-                break
-            at = round(frame_index * 1000 / fps)
-            sampled = frame_index % sample_step == 0
-            frame_index += 1
-            if not sampled:
-                continue
-            small_scene = cv2.cvtColor(cv2.resize(image, (64, 36)), cv2.COLOR_BGR2GRAY)
-            cut = previous_scene is not None and float(np.mean(np.abs(small_scene.astype("float32") - previous_scene))) > 45
-            previous_scene = small_scene.astype("float32")
-            if cut:
-                if current:
-                    current["end_ms"] = at
-                current, last_clean, last_signature = None, None, None
-                watched_boxes = []
-                scene += 1
-            crop = cv2.resize(image[top:bottom], (scaled_width, scaled_height))
-            signature = text_signature(crop)
-            changed = signature_changed(last_signature, signature, watched_boxes, crop.shape)
-            if not changed and at - last_ocr_ms < heartbeat_ms:
-                if current:
-                    current["end_ms"] = min(config["duration_ms"], at + round(sample_step * 1000 / fps))
-                continue
-            last_signature, last_ocr_ms = signature, at
-            output = engine(crop)
-            lines = []
-            if output.boxes is not None:
-                for box, text, score in zip(output.boxes, output.txts, output.scores, strict=True):
-                    if float(score) >= 0.5:
-                        lines.append({"box": box.tolist(), "text": str(text), "score": float(score)})
-            watched_boxes = [line["box"] for line in lines]
-            frames.append({"at_ms": at, "scene_id": scene, "lines": lines})
-            kind = classify_text(lines, scaled_height, scaled_width)
-            text = "".join(line["text"] for line in lines)
-            if current and current["text"] == text and current["kind"] == kind:
-                current["end_ms"] = min(config["duration_ms"], at + round(sample_step * 1000 / fps))
-                current["boxes"] = [line["box"] for line in lines]
-                continue
-            pending = current
-            if current:
-                current["end_ms"] = at
-            current = None
-            if not lines:
-                last_clean = (at, crop.copy())
-                if pending and at - pending["start_ms"] <= int(config.get("donor_max_event_ms", 10000)):
-                    path = folder / f"donor-after-{pending['id']}.png"
-                    if not cv2.imwrite(str(path), crop):
-                        raise RuntimeError("Could not save clean-frame donor")
-                    pending["donors"].append(str(path))
-                    saved_paths.append(str(path))
-                continue
-            # Logos, credits and lyrics remain evidence; only dialogue events are removed.
-            current = {"id": f"ocr-{len(events):06d}", "start_ms": at,
-                       "end_ms": min(config["duration_ms"], at + round(sample_step * 1000 / fps)),
-                       "text": text, "kind": kind, "score": min(line["score"] for line in lines),
-                       "boxes": [line["box"] for line in lines], "scene_id": scene, "donors": []}
-            if last_clean and at - last_clean[0] <= int(config.get("donor_max_gap_ms", 2000)):
-                path = folder / f"donor-before-{current['id']}.png"
-                if not cv2.imwrite(str(path), last_clean[1]):
-                    raise RuntimeError("Could not save clean-frame donor")
-                current["donors"].append(str(path))
-                saved_paths.append(str(path))
-            events.append(current)
-        if current:
-            current["end_ms"] = config["duration_ms"]
-    finally:
-        capture.release()
-    target = folder / "ocr-events.json"
-    atomic_json(target, {"schema_version": 1, "events": events, "frames": frames,
-                        "source_sha256": sha256_file(source), "width": width, "height": height,
-                        "crop": [top, bottom, scaled_width, scaled_height], "ocr_calls": len(frames),
-                        "decoded_frames": frame_index, "provider": "CUDAExecutionProvider",
-                        "subtitle_profile": {"y": top / height, "h": (bottom - top) / height},
-                        "text_kind_policy": "LOCATION_AND_TEXT_RULES_UNCALIBRATED"})
-    return {**identity([manifest]), "artifacts": [str(target), *saved_paths],
-            "metrics": {"model_load_ms": load_ms, "inference_ms": (time.perf_counter() - tick) * 1000},
-            "ocr_calls": len(frames)}
-
+    return scan_subtitles(source, config, engine_factory=build_engine)
 
 def recover_crop(image, donor, mask):
     """Register observed clean pixels; insufficient evidence returns the original crop."""

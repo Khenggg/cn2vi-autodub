@@ -9,6 +9,7 @@ import numpy as np
 import pytest
 
 from autodub.adapters import v2_vision
+from autodub.adapters import subtitle_events
 from autodub.storage import atomic_json, sha256_file
 
 
@@ -85,6 +86,8 @@ def test_event_ocr_reuses_static_text_and_records_clean_donors(tmp_path, monkeyp
 
     monkeypatch.setattr(v2_vision, "build_engine", lambda config, resolve_asset: (
         Engine(), {"id": "ocr", "model_revision": "pinned", "weights_sha256": "hash"}))
+    monkeypatch.setattr(subtitle_events, 'recognize_lines',
+                        lambda engine, images, batch_size: [('你好', 0.95) for image in images])
     monkeypatch.setenv("AUTODUB_WORKER_OUTPUT", str(tmp_path / "ocr"))
     result = v2_vision.scan(source, {"duration_ms": 2000})
     report = json.loads(Path(result["artifacts"][0]).read_text())
@@ -93,3 +96,50 @@ def test_event_ocr_reuses_static_text_and_records_clean_donors(tmp_path, monkeyp
     assert len(report["events"]) == 1 and report["events"][0]["kind"] == "DIALOGUE"
     assert report["events"][0]["donors"]
     assert report["provider"] == "CUDAExecutionProvider"
+    assert report['recognition_batch_calls'] > 0
+    assert report['materialized_frames'] == 10
+
+
+def test_locate_dialogue_line_excludes_yellow_title_and_logo():
+    image = np.zeros((100, 320, 3), dtype='uint8')
+    cv2.putText(image, 'TITLE', (5, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+    cv2.putText(image, 'WORDS', (110, 75), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+    lines = [
+        {'text': '装饰', 'box': [[0, 8], [80, 8], [80, 35], [0, 35]]},
+        {'text': '对白', 'box': [[105, 50], [190, 50], [190, 80], [105, 80]]},
+        {'text': 'logo', 'box': [[0, 0], [40, 0], [40, 8], [0, 8]]},
+    ]
+    assert subtitle_events.select_line(image, lines)['text'] == '对白'
+
+
+def test_line_signature_ignores_colored_decoration():
+    image = np.zeros((48, 320, 3), dtype='uint8')
+    cv2.putText(image, 'WORDS', (110, 35), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+    before = subtitle_events.line_signature(image)
+    cv2.putText(image, 'TITLE', (0, 35), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+    assert not subtitle_events.changed_line(before, subtitle_events.line_signature(image))
+    image[15:40, 110:200] = 0
+    assert subtitle_events.changed_line(before, subtitle_events.line_signature(image))
+
+
+def test_recognition_submits_one_batch_and_keeps_original_image_order(monkeypatch):
+    import sys
+
+    monkeypatch.setitem(sys.modules, 'rapidocr.ch_ppocr_rec.main',
+                        SimpleNamespace(TextRecInput=SimpleNamespace))
+    calls = []
+
+    class Recognizer:
+        rec_batch_num = 1
+
+        def __call__(self, args):
+            calls.append(args.img)
+            assert self.rec_batch_num == 8
+            return SimpleNamespace(txts=['短', '长句'], scores=[0.9, 0.95])
+
+    images = [np.zeros((32, 40, 3), dtype='uint8'), np.zeros((32, 180, 3), dtype='uint8')]
+    result = subtitle_events.recognize_lines(SimpleNamespace(text_rec=Recognizer()), images, 8)
+    assert len(calls) == 1 and calls[0] is images
+    assert result == [('短', 0.9), ('长句', 0.95)]
+    with pytest.raises(ValueError):
+        subtitle_events.recognize_lines(SimpleNamespace(), images * 10, 8)
