@@ -21,7 +21,7 @@ def frame_timestamps(source, ffprobe='ffprobe'):
     data = json.loads(result.stdout)
     origin = Decimal(data.get('format', {}).get('start_time', '0'))
     stamps = [round((Decimal(frame['best_effort_timestamp_time']) - origin) * 1000) for frame in data['frames']]
-    if not stamps or stamps[0] < 0 or any(b <= a for a, b in zip(stamps, stamps[1:])):
+    if not stamps or stamps[0] < 0 or any(b <= a for a, b in zip(stamps, stamps[1:], strict=False)):
         raise ValueError('Source presentation timestamps are unavailable or unordered')
     return stamps, float(origin)
 
@@ -71,6 +71,23 @@ def same_shape(first, second):
         if pixels >= 12 and np.count_nonzero(missed[:, left:left + 12]) / pixels > 0.25:
             return False
     return True
+
+
+def recognition_slices(image):
+    """Give each horizontal line its own recognizer input, in display order."""
+    import numpy as np
+
+    mask = subtitle_events.line_signature(image)
+    rows = np.count_nonzero(mask, axis=1) >= 3
+    ranges, start = [], None
+    for index in range(len(rows)):
+        if rows[index] and start is None:
+            start = index
+        if start is not None and (index == len(rows) - 1 or not rows[index:index + 3].any()):
+            if index + 1 - start >= 3:
+                ranges.append((max(0, start - 3), min(len(rows), index + 4)))
+            start = None
+    return [(image[upper:lower], upper, lower) for upper, lower in ranges] or [(image, 0, len(image))]
 
 
 class SubtitleTracker:
@@ -168,11 +185,21 @@ def scan(source: Path, config: dict, *, engine_factory=build_engine) -> dict:
             return
         # Width sorting is internal to RapidOCR; its API returns original input order.
         started = time.perf_counter()
-        results = subtitle_events.recognize_lines(engine, [row['line_image'] for row in pending], batch_size)
+        groups = [recognition_slices(row['line_image']) for row in pending]
+        images = [image for group in groups for image, _, _ in group]
+        results = []
+        for left in range(0, len(images), batch_size):
+            chunk = images[left:left + batch_size]
+            results.extend(subtitle_events.recognize_lines(engine, chunk, batch_size))
+            batches.append(len(chunk))
         recognition_ms += (time.perf_counter() - started) * 1000
-        batches.append(len(pending))
         from autodub.adapters.v2_vision import classify_text
-        for row, (text, score) in zip(pending, results, strict=True):
+        cursor = 0
+        for row, group in zip(pending, groups, strict=True):
+            outputs = results[cursor:cursor + len(group)]
+            cursor += len(group)
+            text = '\n'.join(str(value) for value, _ in outputs)
+            score = min(float(score) for _, score in outputs)
             eid = f"ocr-{len(events):06d}"
             lines = [{'box': row['box'], 'text': str(text), 'score': float(score)}] if text and score >= 0.5 else []
             frames.append({'at_ms': row['representative_at_ms'], 'event_start_ms': row['start_ms'],

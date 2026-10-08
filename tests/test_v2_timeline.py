@@ -4,7 +4,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from autodub.adapters.subtitle_tracking import SubtitleTracker, frame_timestamps, same_shape
+from autodub.adapters.subtitle_tracking import SubtitleTracker, frame_timestamps, recognition_slices, same_shape
 from autodub.adapters.v2_mix import RATE, trim_silent_edges
 from autodub.contracts import Segment
 from autodub.timeline import sentence_timeline, timeline_manifest
@@ -111,3 +111,11 @@ def test_pts_preserves_variable_frame_intervals_and_shared_source_origin(monkeyp
     monkeypatch.setattr('autodub.adapters.subtitle_tracking.subprocess.run',
                         lambda *args, **kwargs: SimpleNamespace(stdout=json.dumps(payload)))
     assert frame_timestamps('video.mp4') == ([0, 41, 127], 2.0)
+
+
+def test_two_subtitle_lines_are_separate_recognizer_inputs():
+    image = np.zeros((64, 120, 3), dtype='uint8')
+    image[10:16, 20:90] = 255
+    image[40:46, 30:100] = 255
+    lines = recognition_slices(image)
+    assert len(lines) == 2 and lines[0][2] < lines[1][1]

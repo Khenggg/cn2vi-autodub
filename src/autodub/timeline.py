@@ -37,7 +37,7 @@ def sentence_timeline(segments: list[dict], events: list[dict]) -> dict:
             # own precise speech boundaries. OCR display times remain estimates.
             words, char_at = [], 0
             complete_words = (lexical(''.join(word['t'] for word in parent['words'])) == source
-                and all(a['e'] <= b['s'] for a, b in zip(parent['words'], parent['words'][1:])))
+                and all(a['e'] <= b['s'] for a, b in zip(parent['words'], parent['words'][1:], strict=False)))
             if complete_words:
                 for word in parent['words']:
                     word_end = char_at + len(lexical(word['t']))
