@@ -21,6 +21,7 @@ DEFAULT_CONFIG = {
     "schema_version": 1,
     "provider": "CUDAExecutionProvider",
     "device_id": 0,
+    "cudnn_conv_algo_search": "DEFAULT",
     "native_threads": 2,
     "recognition_batch": 8,
     "detector_side": 960,
@@ -67,6 +68,8 @@ def validate_config(data: dict) -> dict:
         result[key] = value
     if result["provider"] not in ("CUDAExecutionProvider", "CPUExecutionProvider"):
         raise ValueError("Choose CUDA explicitly, or an explicitly labeled CPU profile")
+    if result["cudnn_conv_algo_search"] not in ("EXHAUSTIVE", "HEURISTIC", "DEFAULT"):
+        raise ValueError("Invalid CUDA convolution search policy")
     return result
 
 

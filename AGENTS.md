@@ -6,6 +6,8 @@ Ngày 09/10/2026 user đã chỉ định máy Windows local GTX 1650 Ti 4 GB là
 
 Trước sửa code dùng codebase-memory-mcp: index nếu thiếu, get_architecture, search_graph, trace_path, đọc đúng file; detect_changes sau sửa. Graph CN2VI cũ không là kiến trúc VNLE.
 
+User cho phép tự sửa lỗi và chạy lại trong giai đoạn prototype Windows này, báo nếu các cách sửa có căn cứ vẫn thất bại. Mỗi lượt vẫn khóa config/code/model và lưu báo cáo; chỉ sửa giữa các lượt, không đổi model/vùng khoanh hoặc fallback âm thầm.
+
 SubAI là công cụ ngoài repo chỉ tham khảo hành vi. Không sửa SubAI, không copy mã dịch ngược, không sửa repo/tài sản ngoài root đã xác nhận.
 
 Giữ private backups/cache/credentials/media ngoài Git. Không xóa tài sản chưa sao lưu xác minh; không reset/clean nhánh cũ. Đọc docs/REPOSITORY_RESET.md trước recovery.

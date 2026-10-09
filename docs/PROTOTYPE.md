@@ -9,6 +9,8 @@ Sau khi cài xong, khởi động Windows bằng `powershell -ExecutionPolicy By
 
 Windows execution preflight đã chạy CUDA với cả detector/recognizer trên GTX1650Ti, driver592.00. Đã sửa discovery DLL: cuDNN9.27 tải engine DLL phụ lúc inference nên chỉ ORT preload chưa đủ; adapter giữ `os.add_dll_directory` và thêm NVIDIA wheel bins vào PATH **của process**, không sửa PATH toàn hệ thống. Adapter cũng truyền `Global.font_path` sang recognizer theo API RapidOCR3.10.0. Detector probe chỉ có CUDA nodes; recognizer có CUDA và vài CPU shape nodes. Đây là runtime probe, không phải CI/quality/SLA video. Tham chiếu [ORT CUDA DLL preload](https://onnxruntime.ai/docs/execution-providers/CUDA-ExecutionProvider.html#preload-dlls). Log/profiling private ở `.cache/vnle-windows-preflight/`.
 
+Lượt video đầu `51cc8ec368124f13a94a7f7b82e428fa` FAILED ở frame0: cuDNN9.27 `HEURISTIC_QUERY_FAILED` trong recognizer với batch4/width426 (Conv.2 tensor[4,24,24,213]). EXHAUSTIVE và HEURISTIC đều lỗi trên batch tương đương. Sau khi user cho phép tự sửa/chạy lại, probe cùng batch chạy được với `cudnn_conv_algo_search=DEFAULT`. Profile lưu rõ lựa chọn; session options thực tế được ghi trong báo cáo. Đây là lựa chọn kernel cuDNN CUDA được cấu hình trước lượt chạy, không đổi model hoặc tự retry bằng CPU. ORT1.23.2 gọi chế độ này là HeurMode FALLBACK và cảnh báo có thể chậm, nên không tuyên bố tối ưu hiệu năng khi chưa đo. [Mã nguồn mapping ORT1.23.2](https://github.com/microsoft/onnxruntime/blob/v1.23.2/onnxruntime/core/providers/cuda/nn/conv.cc#L373).
+
 ## Những phần đã viết
 
 - Giao diện web tiếng Việt, chọn MP4, tua/dừng, kéo chuột khoanh tối đa 16 hình chữ nhật.

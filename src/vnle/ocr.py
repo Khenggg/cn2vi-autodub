@@ -100,7 +100,10 @@ class RapidAdapter:
             options.inter_op_num_threads = 1
             options.enable_profiling = True
             options.profile_file_prefix = str(output / f"ort-{name}")
-            providers = [(provider, {"device_id": config["device_id"]})]
+            provider_options = {"device_id": config["device_id"]}
+            if provider == "CUDAExecutionProvider":
+                provider_options["cudnn_conv_algo_search"] = config["cudnn_conv_algo_search"]
+            providers = [(provider, provider_options)]
             if provider == "CUDAExecutionProvider":
                 # CPU partitions are observable, not a second model or hidden retry.
                 providers.append(("CPUExecutionProvider", {}))
@@ -232,6 +235,7 @@ class RapidAdapter:
                     durations[provider] += item.get("dur", 0) / 1_000_000
             profiles[name] = {
                 "session_providers": session.get_providers(),
+                "session_provider_options": session.get_provider_options(),
                 "trace": path.name,
                 "node_executions_by_provider": dict(nodes),
                 "node_duration_s": dict(durations),
