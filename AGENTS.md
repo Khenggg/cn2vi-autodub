@@ -1,23 +1,19 @@
-# CN2VI development rules
+# VNLE development rules
 
-Before editing, prefer codebase-memory-mcp: index an unindexed checkout, get_architecture,
-search_graph and trace_path; read the exact files and use detect_changes after edits.
+Repo D:\Video đã chuyển từ CN2VI sang VNLE; nhiệm vụ hiện tại chỉ nghiên cứu và kiến trúc. Không triển khai đầy đủ/tải weights/inference trước chỉ thị tiếp theo.
 
-Local is for code and static inspection. Use CI for automated tests/builds and rented GPU
-cloud for environment installation, media benchmarks and model inference. Never download
-model weights or run inference on the local development machine.
+Trước sửa code dùng codebase-memory-mcp: index nếu thiếu, get_architecture, search_graph, trace_path, đọc đúng file; detect_changes sau sửa. Graph CN2VI cũ không là kiến trúc VNLE.
 
-During an active experimental video run, do not change implementation, model selection,
-prompts, thresholds, preprocessing, postprocessing or configuration in response to a discovered
-error. Record it and continue whenever technically possible. Quality errors are not fatal.
-Produce the most complete playable video and run-report.json/run-report.md. After the run,
-explain failures and obtain explicit user approval before corrective changes and a new run.
+SubAI là công cụ ngoài repo chỉ tham khảo hành vi. Không sửa SubAI, không copy mã dịch ngược, không sửa repo/tài sản ngoài root đã xác nhận.
 
-One task, one model. No model fallback. Every run freezes code/config/model/input provenance,
-measures stage and total wall time, load time where practical, RTF, resources and estimated cost.
-Unknown API cost or unmeasured quality must remain unknown. Preserve Ngọc Huyền as the fixed
-voice until the user explicitly requests a change.
+Giữ private backups/cache/credentials/media ngoài Git. Không xóa tài sản chưa sao lưu xác minh; không reset/clean nhánh cũ. Đọc docs/REPOSITORY_RESET.md trước recovery.
 
-Use Antigravity Gemini 3.8 Flash High only for necessary, bounded delegated work. Keep the
-main implementation and verification with the primary agent. Never automatically retry an
-agent that returned an empty or failed report.
+Máy nghiệm thu Windows GTX1650Ti4GB, SSD, cắm điện. SLA VNLE <=600s cho600s MP4 H2648bit720p<=30FPS gồm cold load/decode/OCR/dịch/render/encode/QC, không tính SubAI. Không giảm resolution/bỏ event/giấu quality errors để đạt SLA; số chưa đo ghi chưa đo.
+
+Algorithm-first, native FFmpeg/OpenCV/ORT/libass; AI OCR hoặc semantic uncertainty. Run khóa model/config/input/code, không fallback âm thầm. Custom C++ cần profiler justification.
+
+Mode A render trước SubAI vẫn là yêu cầu; B chỉ so sánh, chưa đổi mặc định. Không claim compatibility trước actual test. Không mang dependency/API/model cũ sang mặc định.
+
+Antigravity Gemini3.8FlashHigh chỉ cho việc hữu hạn cần thiết; primary đối chiếu nguồn và thiết kế. Không tự retry agent empty/failed report. Báo cáo tiếng Việt.
+
+User khoanh subtitle exclusion trước discovery/OCR; không nhận diện trong ROI. Lưu transform/interval/hash; report EXCLUDED_BY_USER, không tự nới ROI.

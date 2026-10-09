@@ -1,5 +1,0 @@
--r worker-common.in
-torch==2.8.0
-torchaudio==2.8.0
-pyannote.audio==4.0.3
-torchcodec==0.7.0
