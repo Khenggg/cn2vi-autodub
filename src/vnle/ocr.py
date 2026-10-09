@@ -143,7 +143,22 @@ class RapidAdapter:
                 "Recognizer has no embedded dictionary; provide a hash-pinned dictionary"
             )
         self.detector = TextDetector(det_cfg)
-        self.recognizer = TextRecognizer(rec_cfg)
+        if config["stable_ocr_shapes"]:
+            canvas_width = config["recognition_canvas_width"]
+            calls = self.calls
+
+            class StableRecognizer(TextRecognizer):
+                def resize_norm_img(self, img, max_wh_ratio):
+                    # Native resize is unchanged. Add normalized blank pixels only.
+                    normalized = super().resize_norm_img(img, max_wh_ratio)
+                    width = max(canvas_width, math.ceil(normalized.shape[2] / 32) * 32)
+                    if width > canvas_width:
+                        calls["recognition_canvas_overflow_images"] += 1
+                    return np.pad(normalized, ((0, 0), (0, 0), (0, width - normalized.shape[2])))
+
+            self.recognizer = StableRecognizer(rec_cfg)
+        else:
+            self.recognizer = TextRecognizer(rec_cfg)
 
     def read(self, image, exclusions, pts: int, time_base: dict, time_s: float):
         from rapidocr.ch_ppocr_rec import TextRecInput
@@ -157,13 +172,18 @@ class RapidAdapter:
             nonlocal pixels
             if not pending:
                 return
+            images = [p[0] for p in pending]
+            if self.config["stable_ocr_shapes"]:
+                extra = self.batch_size - len(images)
+                images.extend(
+                    self.np.full((48, 1, 3), 127, dtype=self.np.uint8) for _ in range(extra)
+                )
+                self.calls["recognition_dummy_rows"] += extra
             started = perf_counter()
-            result = self.recognizer(
-                TextRecInput(img=[p[0] for p in pending], return_word_box=False)
-            )
+            result = self.recognizer(TextRecInput(img=images, return_word_box=False))
             self.timings["recognition_s"] += perf_counter() - started
             self.calls["recognition_batches"] += 1
-            if result.txts is None or len(result.txts) != len(pending):
+            if result.txts is None or len(result.txts) != len(images):
                 raise RuntimeError("Recognition output length differs from crop batch")
             for i, (crop, polygon, tile, edge) in enumerate(pending):
                 self.counter += 1
@@ -188,17 +208,36 @@ class RapidAdapter:
             pixels = 0
 
         height, width = image.shape[:2]
-        for x0, y0, x1, y1 in allowed_tiles(width, height, exclusions):
+        tiles = list(allowed_tiles(width, height, exclusions))
+        canvas = None
+        if tiles and self.config["stable_ocr_shapes"]:
+            canvas_h = math.ceil(max(y1 - y0 for x0, y0, x1, y1 in tiles) / 32) * 32
+            canvas_w = math.ceil(max(x1 - x0 for x0, y0, x1, y1 in tiles) / 32) * 32
+            if max(canvas_h, canvas_w) <= self.config["detector_side"]:
+                # No source resize: every allowed pixel survives at its original scale.
+                canvas = self.np.zeros((canvas_h, canvas_w, 3), dtype=image.dtype)
+                self.calls["stable_detector_frames"] += 1
+            else:
+                self.calls["detector_canvas_exceeds_side_frames"] += 1
+        for x0, y0, x1, y1 in tiles:
             tile = (x0, y0, x1, y1)
             tile_img = self.np.ascontiguousarray(image[y0:y1, x0:x1])
+            detector_input = tile_img
+            if canvas is not None:
+                canvas.fill(0)
+                canvas[: y1 - y0, : x1 - x0] = tile_img
+                detector_input = canvas
             started = perf_counter()
-            detection = self.detector(tile_img)
+            detection = self.detector(detector_input)
             self.timings["detection_s"] += perf_counter() - started
             self.calls["detector_tiles"] += 1
             if detection.boxes is None:
                 continue
             for box in detection.boxes:
                 local = box.copy()
+                if self.np.min(local[:, 0]) >= x1 - x0 or self.np.min(local[:, 1]) >= y1 - y0:
+                    self.calls["padding_only_proposals"] += 1
+                    continue
                 local[:, 0] = self.np.clip(local[:, 0], 0, x1 - x0 - 1)
                 local[:, 1] = self.np.clip(local[:, 1], 0, y1 - y0 - 1)
                 if self.np.ptp(local[:, 0]) < 1 or self.np.ptp(local[:, 1]) < 1:

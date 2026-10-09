@@ -15,6 +15,10 @@ Lượt DEFAULT/cuDNN9.27 `26617bf14122432eb6dfaa4576058541` hoàn tất 30s tro
 
 Đã kiểm tra thêm cuDNN9.10.2.21 trên cùng batch4/width426: HEURISTIC chạy được, nên profile hiện dùng HEURISTIC và dependency khóa `nvidia-cudnn-cu12==9.10.2.21`. Không cần tải lại model. [NVIDIA9.10.2 support matrix](https://docs.nvidia.com/deeplearning/cudnn/backend/v9.10.2/reference/support-matrix.html) hỗ trợ Turing/Windows/CUDA12.9; driver592.00 đáp ứng yêu cầu. Phiên bản CUDA/cuDNN thực tế được ghi trong runtime của báo cáo. Kết quả/tốc độ video với cấu hình mới vẫn phải đo riêng.
 
+Lượt9.10.2 không ổn định shape `1b390aff2c784384941b20cf1ce59efe` được hủy ở4.567s video/292.277s wall vì chậm hơn. Runtime probe phân biệt hot/cold shape: detector cùng shape0.031–0.074s, đổi shape1.44–1.69s; recognizer cùng batch0.020–0.028s, đổi batch2.48–2.73s. Chưa dùng số này làm SLA.
+
+Profile hiện bật `stable_ocr_shapes`: detector chỉ đệm zero cho tile ngoài ROI vào canvas chung bội32 khi canvas nằm trong side limit960. Không đưa pixel ROI trở lại, không resize nguồn thêm; khi canvas vượt side limit dùng preprocessing vốn có và ghi counter. Loại proposal hoàn toàn trong padding; proposal chạm biên nguồn vẫn giữ để review. Recognizer dùng native resize, đệm normalized zero đến1536 hoặc lớn hơn nếu crop cần, không cắt/nén crop; batch thiếu hàng được bổ sung ảnh trống đến8, chỉ xuất observations cho hàng thật. Overflow/dummy rows được đếm trong báo cáo. Padding có thể thay đổi detection/confidence và cần đánh giá chất lượng; chưa được xem là tương đương tuyệt đối. Probe khung đầu thật: cold4.510s, hot0.354–0.360s, biển hiệu chính đọc đúng; vài false positives vẫn được giữ. CI native contract bổ sung kiểm tra canvas/dummy rows không làm lộ ROI hoặc tạo source observations giả; pytest vẫn chưa chạy.
+
 ## Những phần đã viết
 
 - Giao diện web tiếng Việt, chọn MP4, tua/dừng, kéo chuột khoanh tối đa 16 hình chữ nhật.

@@ -33,6 +33,7 @@ def test_ocr_sees_only_complement_pixels(monkeypatch):
     adapter.timings, adapter.calls = Counter(), Counter()
     adapter.counter = 0
     adapter.batch_size = 8
+    adapter.config = dict(DEFAULT_CONFIG)
     seen = []
 
     def detect(tile):
@@ -54,6 +55,8 @@ def test_ocr_sees_only_complement_pixels(monkeypatch):
         return
     rows, _ = adapter.read(image, (rect,), 100, {"num": 1, "den": 100}, 1)
     assert rows and len(seen) >= 2
+    assert len({tile.shape for tile in seen}) == 1
+    assert len(rows) == len(seen)  # Padded batch rows never become source observations.
     assert all(not (30 <= p[0] < 130 and 80 <= p[1] < 100) for o in rows for p in o.polygon)
 
 

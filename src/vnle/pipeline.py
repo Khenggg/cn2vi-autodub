@@ -24,6 +24,8 @@ DEFAULT_CONFIG = {
     "cudnn_conv_algo_search": "HEURISTIC",
     "native_threads": 2,
     "recognition_batch": 8,
+    "stable_ocr_shapes": True,
+    "recognition_canvas_width": 1536,
     "detector_side": 960,
     "watchdog_s": 0.25,
     "change_min_interval_s": 0.08,
@@ -70,6 +72,11 @@ def validate_config(data: dict) -> dict:
         raise ValueError("Choose CUDA explicitly, or an explicitly labeled CPU profile")
     if result["cudnn_conv_algo_search"] not in ("EXHAUSTIVE", "HEURISTIC", "DEFAULT"):
         raise ValueError("Invalid CUDA convolution search policy")
+    if type(result["stable_ocr_shapes"]) is not bool:
+        raise ValueError("stable_ocr_shapes must be a boolean")
+    canvas_width = result["recognition_canvas_width"]
+    if type(canvas_width) is not int or not 320 <= canvas_width <= 4096 or canvas_width % 32:
+        raise ValueError("Recognition canvas width must be 320..4096 and divisible by 32")
     return result
 
 
