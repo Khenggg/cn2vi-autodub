@@ -10,6 +10,7 @@ import hashlib
 import importlib.metadata
 import json
 import math
+import os
 from collections import Counter
 from pathlib import Path
 from time import perf_counter
@@ -70,8 +71,21 @@ class RapidAdapter:
         self.timings = Counter()
         self.calls = Counter()
         self.batch_size = config["recognition_batch"]
+        self.dll_directories = []
+        self.runtime_dll_paths = []
         provider = config["provider"]
         if provider == "CUDAExecutionProvider":
+            if os.name == "nt":
+                # cuDNN dynamically loads secondary engines after ORT preload.
+                # Keep wheel directories searchable for this process's lifetime.
+                nvidia = Path(ort.__file__).parent.parent / "nvidia"
+                for folder in sorted(nvidia.glob("*/bin")):
+                    if folder.is_dir():
+                        self.runtime_dll_paths.append(str(folder.resolve()))
+                        self.dll_directories.append(os.add_dll_directory(str(folder.resolve())))
+                os.environ["PATH"] = os.pathsep.join(
+                    [*self.runtime_dll_paths, os.environ.get("PATH", "")]
+                )
             # Search the explicitly installed NVIDIA runtime wheels, not SubAI DLLs.
             ort.preload_dlls(directory="")
         if provider not in ort.get_available_providers():
@@ -118,6 +132,7 @@ class RapidAdapter:
         det_cfg["session"] = self.sessions["detector"]
         rec_cfg = AttrMap(dict(engine.cfg.Rec))
         rec_cfg["session"] = self.sessions["recognizer"]
+        rec_cfg["font_path"] = engine.cfg.Global.font_path
         if "dictionary" in manifest:
             rec_cfg["rec_keys_path"] = manifest["dictionary"]["path"]
         elif "character" not in self.sessions["recognizer"].get_modelmeta().custom_metadata_map:
@@ -224,6 +239,7 @@ class RapidAdapter:
             }
         return {
             "requested_provider": self.config["provider"],
+            "runtime_dll_paths": self.runtime_dll_paths,
             "available_providers": self.available_providers,
             "profiles": profiles,
             "timings": dict(self.timings),

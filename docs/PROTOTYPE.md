@@ -7,6 +7,8 @@ Ngày 09/10/2026. Người dùng đã yêu cầu bắt đầu triển khai sau n
 
 Sau khi cài xong, khởi động Windows bằng `powershell -ExecutionPolicy Bypass -File .\scripts\start-vnle.ps1`. Có thể mở lại kết quả qua `/?video=VIDEO_ID&run=RUN_ID`: trang lấy video, vùng đã xác nhận và dữ liệu của lượt chạy, không tự khởi chạy lại OCR.
 
+Windows execution preflight đã chạy CUDA với cả detector/recognizer trên GTX1650Ti, driver592.00. Đã sửa discovery DLL: cuDNN9.27 tải engine DLL phụ lúc inference nên chỉ ORT preload chưa đủ; adapter giữ `os.add_dll_directory` và thêm NVIDIA wheel bins vào PATH **của process**, không sửa PATH toàn hệ thống. Adapter cũng truyền `Global.font_path` sang recognizer theo API RapidOCR3.10.0. Detector probe chỉ có CUDA nodes; recognizer có CUDA và vài CPU shape nodes. Đây là runtime probe, không phải CI/quality/SLA video. Tham chiếu [ORT CUDA DLL preload](https://onnxruntime.ai/docs/execution-providers/CUDA-ExecutionProvider.html#preload-dlls). Log/profiling private ở `.cache/vnle-windows-preflight/`.
+
 ## Những phần đã viết
 
 - Giao diện web tiếng Việt, chọn MP4, tua/dừng, kéo chuột khoanh tối đa 16 hình chữ nhật.
