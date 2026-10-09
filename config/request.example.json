@@ -1,0 +1,8 @@
+{
+  "roi_confirmed": true,
+  "start_s": 0,
+  "end_s": 30,
+  "exclusions": [
+    {"x": 0.2, "y": 0.84, "width": 0.6, "height": 0.1, "start_s": 0, "end_s": 30}
+  ]
+}

@@ -3,6 +3,9 @@
 .research-cache/
 .cache/
 .venv/
+.venv-vnle*/
+build/
+dist/
 .env
 .env.*
 !.env.example

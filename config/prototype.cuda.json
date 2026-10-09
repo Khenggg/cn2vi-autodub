@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "provider": "CUDAExecutionProvider",
+  "device_id": 0,
+  "native_threads": 2,
+  "recognition_batch": 8,
+  "detector_side": 960,
+  "watchdog_s": 0.25,
+  "change_min_interval_s": 0.08,
+  "tile_change_threshold": 8.0,
+  "scene_change_threshold": 45.0,
+  "review_confidence": 0.68
+}

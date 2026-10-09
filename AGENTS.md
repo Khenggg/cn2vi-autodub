@@ -1,6 +1,8 @@
 # VNLE development rules
 
-Repo D:\Video đã chuyển từ CN2VI sang VNLE; nhiệm vụ hiện tại chỉ nghiên cứu và kiến trúc. Không triển khai đầy đủ/tải weights/inference trước chỉ thị tiếp theo.
+Repo D:\Video đã chuyển từ CN2VI sang VNLE. User đã duyệt xây prototype discovery (preview/manual subtitle exclusion/OCR/events) sau nghiên cứu. Xem docs/PROTOTYPE.md cho tình trạng thật; chưa dịch/render hoàn chỉnh.
+
+Local chỉ code/static inspection và UI-only preview; không tải weights/chạy model hoặc media benchmarks. Tests/builds dùng CI; inference/install/runtime verification trên máy thực hiện được user chỉ định. Không mặc định credentials cloud cũ còn hiệu lực. Một run khóa config/model/code, không đổi giữa run hay fallback âm thầm.
 
 Trước sửa code dùng codebase-memory-mcp: index nếu thiếu, get_architecture, search_graph, trace_path, đọc đúng file; detect_changes sau sửa. Graph CN2VI cũ không là kiến trúc VNLE.
 

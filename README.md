@@ -2,7 +2,9 @@
 
 Repo đã chuyển từ CN2VI autodub sang nghiên cứu engine **Việt hóa chữ quan trọng trong hình video**. SubAI tiếp tục xử lý lời thoại và lồng tiếng bên ngoài; không sửa ứng dụng đó.
 
-**Trạng thái ngày 09/10/2026:** đã reset có bản lưu và hoàn thành nghiên cứu, thiết kế. Chưa có sản phẩm VNLE chạy được. SLA 600 giây cho video 600 giây trên GTX 1650 Ti 4 GB **chưa được chứng minh**; ngân sách trong tài liệu là mục tiêu thiết kế, không phải số đo.
+**Trạng thái ngày 09/10/2026:** đã hoàn thành nghiên cứu và viết prototype discovery: preview, khoanh sub, OCR ngoài ROI, event/timecode và báo cáo. Giao diện đã khởi động; chưa chạy OCR/video thật hoặc CI. Chưa có pipeline dịch/render VNLE hoàn chỉnh. SLA 600 giây cho video 600 giây trên GTX 1650 Ti 4 GB **chưa được chứng minh**.
+
+[Hướng dẫn bản mẫu và giới hạn đã kiểm tra](docs/PROTOTYPE.md). Xem giao diện local bằng `scripts/start-preview.ps1`; OCR chỉ bật trên máy thực hiện có dependencies/model manifest. Chế độ preview local không tải model hoặc upload video.
 
 Bước đầu theo yêu cầu: **người dùng khoanh vùng text sub trước; VNLE không phát hiện chữ và không OCR vùng đó**. Phần còn lại được quét tìm bảng hệ thống, tên nhân vật, tin nhắn và manh mối. Mode A dựng chữ trước SubAI vẫn là luồng yêu cầu; Mode B chỉ là phương án so sánh.
 
@@ -31,4 +33,4 @@ Git root `D:\Video`; remote giữ nguyên `https://github.com/Khenggg/cn2vi-auto
 
 Kho lưu `D:\Video\.legacy-backup\cn2vi-20261009-152059`, nhánh `codex/backup-cn2vi-before-vnle-20261009-152059`. Có 9.640 tệp / 1.258.417.187 byte được đối chiếu SHA-256, bản gốc lưu riêng và Git bundle đã verify. Kho có thể chứa credentials/media, được Git bỏ qua, không upload. Cache và venv cũ giữ nguyên, không dùng làm dependency VNLE. Có hai lỗi truy cập trong inventory, nên không tuyên bố đã sao lưu hết mọi byte local. Không xóa dữ liệu ngoài repo.
 
-Bước tiếp theo sau khi duyệt: xây phép đo decode/change scan và native render/QC trên laptop thật, sau đó mới chọn cấu hình OCR. Nhiệm vụ này dừng ở nghiên cứu; chưa triển khai hoặc chạy model.
+Bước tiếp theo: chạy CI, kiểm tra prototype với video/ROI người dùng trên máy thực hiện, đánh giá events/timecode/recall/provider trace trước khi nối dịch và render. Các tài liệu nghiên cứu giữ nguyên snapshot lúc nghiên cứu; tình trạng triển khai mới được ghi trong `docs/PROTOTYPE.md`.

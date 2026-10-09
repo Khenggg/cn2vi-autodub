@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>VNLE — Chữ trong video</title><link rel="stylesheet" href="/style.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <header><span class="brand">VNLE <small>BẢN MẪU 0.1</small></span><span id="server-state">Đang kết nối…</span></header>
+  <main>
+    <section class="workspace">
+      <h1>Chữ trong video</h1>
+      <p class="intro">Khoanh vùng phụ đề cần bỏ qua. Phần hình còn lại sẽ được quét tìm chữ.</p>
+      <label class="file-button">Chọn video MP4<input id="file" type="file" accept="video/mp4,.mp4"></label>
+      <span id="filename">Chưa chọn video</span>
+      <div id="preview" class="preview">
+        <video id="video" preload="metadata" playsinline></video>
+        <canvas id="roi" aria-label="Kéo chuột để khoanh vùng sub cần bỏ qua"></canvas>
+        <div id="empty">Video của bạn sẽ hiển thị ở đây</div>
+      </div>
+      <div class="playback">
+        <button id="play" disabled>Phát / Dừng</button>
+        <input id="seek" type="range" min="0" max="1" step="0.01" value="0" disabled aria-label="Tua video">
+        <span id="clock">00:00 / 00:00</span>
+      </div>
+      <p class="hint">Dừng ở khung có sub rồi kéo chuột trên video để tạo vùng bỏ qua. Có thể khoanh nhiều vùng.</p>
+      <div id="message" role="status" aria-live="polite"></div>
+      <section id="results" hidden>
+        <div class="result-heading"><h2>Chữ và thời gian xuất hiện</h2><div id="downloads"></div></div>
+        <p id="result-note"></p>
+        <ol id="events"></ol>
+      </section>
+    </section>
+    <aside>
+      <h2>Vùng sub cần bỏ qua</h2>
+      <p>Chữ bên trong vùng tô màu sẽ không được đưa vào OCR.</p>
+      <div id="regions"><p class="muted">Chưa khoanh vùng</p></div>
+      <button id="clear" disabled>Xóa tất cả vùng</button>
+      <label class="confirm"><input id="confirm" type="checkbox" disabled>Tôi xác nhận các vùng bỏ qua</label>
+      <h2>Đoạn phân tích</h2>
+      <div class="interval">
+        <label>Từ giây<input id="start" type="number" min="0" step="0.1" value="0" disabled></label>
+        <label>Đến giây<input id="end" type="number" min="0" step="0.1" value="30" disabled></label>
+      </div>
+      <p class="hint">Mặc định lấy 30 giây đầu để xem kết quả sớm. Bạn có thể đổi sang toàn video.</p>
+      <button id="export" disabled>Lưu vùng khoanh JSON</button>
+      <button id="run" class="primary" disabled>Phân tích chữ ngoài vùng sub</button>
+      <button id="cancel" hidden>Dừng phân tích</button>
+      <progress id="progress" max="100" value="0" hidden></progress>
+      <p id="run-state"></p>
+      <p class="footnote">Bản mẫu hiện xuất chữ, vị trí, ảnh chứng cứ và thời gian. Dịch và chèn chữ Việt là bước tiếp theo.</p>
+    </aside>
+  </main>
+</body>
+</html>
