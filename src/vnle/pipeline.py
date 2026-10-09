@@ -21,7 +21,7 @@ DEFAULT_CONFIG = {
     "schema_version": 1,
     "provider": "CUDAExecutionProvider",
     "device_id": 0,
-    "cudnn_conv_algo_search": "DEFAULT",
+    "cudnn_conv_algo_search": "HEURISTIC",
     "native_threads": 2,
     "recognition_batch": 8,
     "detector_side": 960,
@@ -177,6 +177,10 @@ def analyze(
             "rapidocr",
             "onnxruntime-gpu",
             "onnxruntime",
+            "nvidia-cudnn-cu12",
+            "nvidia-cublas-cu12",
+            "nvidia-cuda-runtime-cu12",
+            "nvidia-cuda-nvrtc-cu12",
         ):
             try:
                 report.setdefault("runtime", {})[name] = importlib.metadata.version(name)

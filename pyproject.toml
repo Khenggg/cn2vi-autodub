@@ -11,7 +11,7 @@ dependencies = []
 
 [project.optional-dependencies]
 analysis = ["av==19.0.1", "numpy>=2,<3", "opencv-python-headless>=4.13,<5", "rapidocr==3.10.0"]
-cuda = ["onnxruntime-gpu[cuda,cudnn]==1.23.2", "nvidia-cublas-cu12>=12,<13"]
+cuda = ["onnxruntime-gpu[cuda,cudnn]==1.23.2", "nvidia-cublas-cu12>=12,<13", "nvidia-cudnn-cu12==9.10.2.21"]
 test = ["pytest==9.1.1", "ruff==0.16.10"]
 
 [project.scripts]

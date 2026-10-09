@@ -11,6 +11,10 @@ Windows execution preflight đã chạy CUDA với cả detector/recognizer trê
 
 Lượt video đầu `51cc8ec368124f13a94a7f7b82e428fa` FAILED ở frame0: cuDNN9.27 `HEURISTIC_QUERY_FAILED` trong recognizer với batch4/width426 (Conv.2 tensor[4,24,24,213]). EXHAUSTIVE và HEURISTIC đều lỗi trên batch tương đương. Sau khi user cho phép tự sửa/chạy lại, probe cùng batch chạy được với `cudnn_conv_algo_search=DEFAULT`. Profile lưu rõ lựa chọn; session options thực tế được ghi trong báo cáo. Đây là lựa chọn kernel cuDNN CUDA được cấu hình trước lượt chạy, không đổi model hoặc tự retry bằng CPU. ORT1.23.2 gọi chế độ này là HeurMode FALLBACK và cảnh báo có thể chậm, nên không tuyên bố tối ưu hiệu năng khi chưa đo. [Mã nguồn mapping ORT1.23.2](https://github.com/microsoft/onnxruntime/blob/v1.23.2/onnxruntime/core/providers/cuda/nn/conv.cc#L373).
 
+Lượt DEFAULT/cuDNN9.27 `26617bf14122432eb6dfaa4576058541` hoàn tất 30s trong608.800s:900 analyzed frames,301 OCR candidates,918 observations,498 events; OCR587.101s. Độ chính xác và SLA chưa đạt nghiệm thu. Không xóa lượt này.
+
+Đã kiểm tra thêm cuDNN9.10.2.21 trên cùng batch4/width426: HEURISTIC chạy được, nên profile hiện dùng HEURISTIC và dependency khóa `nvidia-cudnn-cu12==9.10.2.21`. Không cần tải lại model. [NVIDIA9.10.2 support matrix](https://docs.nvidia.com/deeplearning/cudnn/backend/v9.10.2/reference/support-matrix.html) hỗ trợ Turing/Windows/CUDA12.9; driver592.00 đáp ứng yêu cầu. Phiên bản CUDA/cuDNN thực tế được ghi trong runtime của báo cáo. Kết quả/tốc độ video với cấu hình mới vẫn phải đo riêng.
+
 ## Những phần đã viết
 
 - Giao diện web tiếng Việt, chọn MP4, tua/dừng, kéo chuột khoanh tối đa 16 hình chữ nhật.

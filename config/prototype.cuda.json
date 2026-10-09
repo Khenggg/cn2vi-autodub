@@ -2,7 +2,7 @@
   "schema_version": 1,
   "provider": "CUDAExecutionProvider",
   "device_id": 0,
-  "cudnn_conv_algo_search": "DEFAULT",
+  "cudnn_conv_algo_search": "HEURISTIC",
   "native_threads": 2,
   "recognition_batch": 8,
   "detector_side": 960,
