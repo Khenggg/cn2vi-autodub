@@ -110,7 +110,7 @@ Copy video và `vnle-request.json` sang máy thực hiện; dùng đường dẫ
 
 Output directory phải mới để không ghi đè run. File `config/request.example.json` chỉ minh họa schema, không là ROI được duyệt cho video của bạn. Không dùng mẫu đó thay thao tác khoanh thật.
 
-## Validation trong lượt này
+## Validation trong lượt prototype ban đầu — lịch sử
 
 - Python AST, TOML/JSON và `node --check`: pass.
 - Ruff lint/format: pass sau sửa định dạng; chỉ là static inspection.
@@ -118,6 +118,10 @@ Output directory phải mới để không ghi đè run. File `config/request.ex
 - CI đã thêm Windows/Ubuntu contract tests và native PyAV/CV integration dùng video synthetic/fake OCR. Bao gồm ROI complement/pixel isolation, VFR PTS, revision/numeral/reappearance, Range/security, partial report và UI-only không bật inference.
 - **Pytest chưa chạy** vì quy định dùng CI; nhánh chưa push nên CI chưa được kích hoạt. Native tests không là quality/throughput của OCR thật.
 - Chưa cloud install, model download/inference, media benchmark, provider trace thực hoặc video output.
+
+### Windows execution sau khi sửa CUDA/shape
+
+Lượt `ca6b3fd0a2a34e199d3716939fccbb17`, code646821e: hoàn tất0–30s trong127.453s, nạp model1.480s, decode2.587s, scan2.381s, OCR110.967s (detector70.302s/recognizer37.854s), events/evidence3.339s; tổng gồm profiling/báo cáo/overhead. 900analyzed frames,301candidates,1699observations,951events. Input/model/request và lịch quét trùng lượt608.800s; speedup4.777x. Không có bbox observation nào giao ROI trên output geometry (1699rows); CI pixel-isolation test vẫn chưa chạy. Detector228760CUDA node executions, recognizer55024CUDA/608CPU shape nodes; không CPU model retry. GPU memory mẫu5s toàn máy cao nhất2617MiB, không phải peak model độc lập; CPU/RAM chưa đo.706events có review reasons; vẫn false positives/đọc sai/duplicate events. Chưa có quality gold set, chưa đạt SLA, chưa dịch/render. API cost0. Dữ liệu/ảnh/video/report/freeze riêng ở `data/vnle/runs/ca6b3fd0a2a34e199d3716939fccbb17/`, được Git bỏ qua.
 
 ## Nguồn adapter
 

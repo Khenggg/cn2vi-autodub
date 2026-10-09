@@ -98,6 +98,7 @@ video.addEventListener("loadedmetadata",()=>{
   $("preview").style.aspectRatio=`${video.videoWidth} / ${video.videoHeight}`;
   $("empty").hidden=true;$("empty").style.display="none";
   $("seek").max=video.duration;$("seek").disabled=$("play").disabled=false;draw();
+  $("clock").textContent=`${clock(video.currentTime)} / ${clock(video.duration)}`;
 });
 video.addEventListener("error",()=>message("Trình duyệt không xem được video này. Bản mẫu cần MP4/H.264 để khoanh đúng vùng.",true));
 

@@ -2,7 +2,7 @@
 
 Repo đã chuyển từ CN2VI autodub sang nghiên cứu engine **Việt hóa chữ quan trọng trong hình video**. SubAI tiếp tục xử lý lời thoại và lồng tiếng bên ngoài; không sửa ứng dụng đó.
 
-**Trạng thái ngày 09/10/2026:** đã hoàn thành nghiên cứu và viết prototype discovery: preview, khoanh sub, OCR ngoài ROI, event/timecode và báo cáo. Giao diện đã khởi động; chưa chạy OCR/video thật hoặc CI. Chưa có pipeline dịch/render VNLE hoàn chỉnh. SLA 600 giây cho video 600 giây trên GTX 1650 Ti 4 GB **chưa được chứng minh**.
+**Trạng thái ngày 09/10/2026:** prototype discovery đã chạy 30 giây video thật trên Windows GTX 1650 Ti 4 GB trong127.453s, sau sửa DLL/cuDNN và ổn định tensor shapes. Cùng input/model/ROI,900frames/301OCRcandidates; nhanh hơn4.777lần so với lượt608.800s. Kết quả còn false positives/đọc sai/sự kiện trùng, cần xem lại. CI chưa chạy. Chưa có pipeline dịch/render VNLE hoàn chỉnh. SLA 600 giây cho video 600 giây **chưa đạt nghiệm thu**.
 
 [Hướng dẫn bản mẫu và giới hạn đã kiểm tra](docs/PROTOTYPE.md). Xem giao diện local bằng `scripts/start-preview.ps1`; OCR chỉ bật trên máy thực hiện có dependencies/model manifest. Chế độ preview local không tải model hoặc upload video.
 
