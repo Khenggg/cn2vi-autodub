@@ -215,6 +215,25 @@ $("cancel").onclick=async()=>{
   try{await api(`/api/runs/${currentJob}/cancel`,{method:"POST"});message("Đã yêu cầu dừng. Chờ OCR hoàn tất lượt hiện tại để lưu kết quả.");}
   catch(e){message(e.message,true);}
 };
-api("/api/status").then(s=>{
-  $("server-state").textContent=s.analysis_enabled?(s.models_configured?"Máy thực hiện đã cấu hình":"Chưa cấu hình model OCR"):"Chế độ xem giao diện";
-}).catch(e=>message(e.message,true));
+async function connect() {
+  try {
+    const status=await api("/api/status");
+    $("server-state").textContent=status.analysis_enabled?(status.models_configured?"Máy thực hiện đã cấu hình":"Chưa cấu hình model OCR"):"Chế độ xem giao diện";
+    const params=new URLSearchParams(location.search),videoId=params.get("video"),runId=params.get("run");
+    if(!videoId || !runId)return;
+    if(!/^[a-f0-9]{32}$/.test(videoId)||!/^[a-f0-9]{32}$/.test(runId))throw new Error("Đường dẫn kết quả không hợp lệ.");
+    const [info,job,report]=await Promise.all([
+      api(`/api/videos/${videoId}`),api(`/api/runs/${runId}`),api(`/artifacts/${runId}/run-report.json`)
+    ]);
+    if(job.video_id && job.video_id!==videoId)throw new Error("Video không thuộc lượt chạy này.");
+    metadata=uploaded=info;uploadReady=true;ready=status.analysis_enabled&&status.models_configured;
+    regions=report.request.exclusions.map(r=>({...r.rect}));
+    changedRegions();$("confirm").checked=true; // A stored Request exists only after explicit confirmation.
+    $("filename").textContent=info.name;$("start").value=report.request.start_s;$("end").value=report.request.end_s;
+    $("start").max=$("end").max=info.media.duration_s;
+    currentJob=runId;busy=job.status==="RUNNING";
+    $("progress").hidden=false;$("cancel").hidden=!busy;updateControls();
+    video.src=`/media/${videoId}`;await poll();
+  }catch(e){message(e.message,true);}
+}
+connect();

@@ -2,7 +2,7 @@
 
 Repo D:\Video đã chuyển từ CN2VI sang VNLE. User đã duyệt xây prototype discovery (preview/manual subtitle exclusion/OCR/events) sau nghiên cứu. Xem docs/PROTOTYPE.md cho tình trạng thật; chưa dịch/render hoàn chỉnh.
 
-Local chỉ code/static inspection và UI-only preview; không tải weights/chạy model hoặc media benchmarks. Tests/builds dùng CI; inference/install/runtime verification trên máy thực hiện được user chỉ định. Không mặc định credentials cloud cũ còn hiệu lực. Một run khóa config/model/code, không đổi giữa run hay fallback âm thầm.
+Ngày 09/10/2026 user đã chỉ định máy Windows local GTX 1650 Ti 4 GB là máy thực hiện VNLE, cho phép cài môi trường riêng, tải weights và chạy video ở đây. Quy định cloud của CN2VI cũ không áp dụng cho execution VNLE đã được chỉ định. Tests/builds vẫn dùng CI. Không mặc định credentials cloud cũ còn hiệu lực. Một run khóa config/model/code, không đổi giữa run hay fallback âm thầm.
 
 Trước sửa code dùng codebase-memory-mcp: index nếu thiếu, get_architecture, search_graph, trace_path, đọc đúng file; detect_changes sau sửa. Graph CN2VI cũ không là kiến trúc VNLE.
 

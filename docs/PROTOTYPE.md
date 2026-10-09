@@ -3,6 +3,10 @@
 Ngày 09/10/2026. Người dùng đã yêu cầu bắt đầu triển khai sau nghiên cứu.
 Đây là bản mẫu discovery P0/P1; chưa phải MVP Việt hóa hoàn chỉnh.
 
+**Cập nhật máy thực hiện 09/10/2026:** người dùng chỉ định Windows local GTX 1650 Ti 4 GB. Cài qua `scripts/install-execution.ps1 -ConfirmExecutionMachine`, tải model bằng `.venv-vnle\Scripts\python.exe -m vnle.assets --destination models\ppocr-v6-small --confirm-execution-machine`, rồi bật server bằng `.venv-vnle\Scripts\python.exe -m vnle serve --port 18083 --config config\prototype.cuda.json --model-manifest models\ppocr-v6-small\manifest.json --enable-analysis`. Không cần cloud/tunnel cho lượt này. Các ghi chú cloud và local UI-only phía dưới mô tả lượt triển khai trước khi người dùng xác nhận máy thực hiện.
+
+Sau khi cài xong, khởi động Windows bằng `powershell -ExecutionPolicy Bypass -File .\scripts\start-vnle.ps1`. Có thể mở lại kết quả qua `/?video=VIDEO_ID&run=RUN_ID`: trang lấy video, vùng đã xác nhận và dữ liệu của lượt chạy, không tự khởi chạy lại OCR.
+
 ## Những phần đã viết
 
 - Giao diện web tiếng Việt, chọn MP4, tua/dừng, kéo chuột khoanh tối đa 16 hình chữ nhật.
