@@ -8,7 +8,7 @@
   "stable_ocr_shapes": true,
   "recognition_canvas_width": 1536,
   "detector_side": 960,
-  "detector_backend": "ppocr",
+  "detector_backend": "chinese_detector",
   "enable_temporal_cache": true,
   "enable_motion_gated_det": true,
   "chinese_only": true,

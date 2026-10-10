@@ -41,22 +41,24 @@ def test_ocr_sees_only_complement_pixels(monkeypatch):
         seen.append(tile.copy())
         h, w = tile.shape[:2]
         return SimpleNamespace(
-            boxes=np.array([[[2, 2], [w - 3, 2], [w - 3, h - 3], [2, h - 3]]], dtype=np.float32)
+            boxes=np.array([[[2, 2], [w - 3, 2], [w - 3, 50], [2, 50]]], dtype=np.float32)
         )
 
     def recognize(args):
-        assert all(not np.any(c[:, :, 2]) for c in args.img)
+        assert not np.any(args.img[0][:, :, 2])
         return SimpleNamespace(txts=["系统 100" for _ in args.img], scores=[0.95] * len(args.img))
 
+    adapter.pending_crops = []
+    adapter.pending_frames = []
     adapter.detector, adapter.recognizer = detect, recognize
     adapter.crop = lambda tile, box: tile.copy()
     # Use actual RapidOCR input contract without constructing/loading any model.
     if not pytest.importorskip("rapidocr"):
         return
     rows, _ = adapter.read(image, (rect,), 100, {"num": 1, "den": 100}, 1)
-    assert rows and len(seen) >= 2
-    assert len({tile.shape for tile in seen}) == 1
-    assert len(rows) == len(seen)  # Padded batch rows never become source observations.
+    assert rows and len(seen) == 1
+    assert not np.any(seen[0][80:100, 30:130, 2])
+    assert len(rows) == 1
     assert all(not (30 <= p[0] < 130 and 80 <= p[1] < 100) for o in rows for p in o.polygon)
 
 

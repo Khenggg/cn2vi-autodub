@@ -14,6 +14,7 @@ from time import perf_counter
 
 from .domain import Request, digest
 from .events import EventBuilder, observation_record
+from .cache import contains_chinese
 from .media import file_sha256
 from .ocr import RapidAdapter, load_manifest
 
@@ -27,6 +28,12 @@ DEFAULT_CONFIG = {
     "stable_ocr_shapes": True,
     "recognition_canvas_width": 1536,
     "detector_side": 960,
+    "detector_backend": "ppocr",
+    "enable_temporal_cache": True,
+    "enable_motion_gated_det": True,
+    "chinese_only": False,
+    "detector_watchdog_s": 0.5,
+    "cache_similarity_threshold": 0.82,
     "watchdog_s": 0.25,
     "change_min_interval_s": 0.08,
     "tile_change_threshold": 8.0,
@@ -44,9 +51,10 @@ def write_json(path: Path, value):
 
 
 def validate_config(data: dict) -> dict:
-    if set(data) != set(DEFAULT_CONFIG):
+    merged = dict(DEFAULT_CONFIG, **data)
+    if set(merged) != set(DEFAULT_CONFIG):
         raise ValueError("Config must have exactly the documented fields")
-    result = dict(data)
+    result = dict(merged)
     if result["schema_version"] != 1:
         raise ValueError("Unsupported config schema")
     for key, lower, upper in (
@@ -77,6 +85,19 @@ def validate_config(data: dict) -> dict:
     canvas_width = result["recognition_canvas_width"]
     if type(canvas_width) is not int or not 320 <= canvas_width <= 4096 or canvas_width % 32:
         raise ValueError("Recognition canvas width must be 320..4096 and divisible by 32")
+    if result["detector_backend"] not in ("ppocr", "chinese_detector"):
+        raise ValueError("detector_backend must be either 'ppocr' or 'chinese_detector'")
+    for key in ("enable_temporal_cache", "enable_motion_gated_det", "chinese_only"):
+        if type(result[key]) is not bool:
+            raise ValueError(f"{key} must be a boolean")
+    for key, lower, upper in (
+        ("detector_watchdog_s", 0.05, 5.0),
+        ("cache_similarity_threshold", 0.5, 1.0),
+    ):
+        value = float(result[key])
+        if not lower <= value <= upper:
+            raise ValueError(f"Invalid config field: {key}")
+        result[key] = value
     return result
 
 
@@ -256,6 +277,7 @@ def analyze(
                 roi_changed = exclusions != previous_roi
                 scene = False
                 changed = True
+                diff = None
                 if previous_gray is not None and not roi_changed:
                     diff = cv2.absdiff(gray, previous_gray)
                     scene = float(np.mean(diff)) >= config["scene_change_threshold"]
@@ -273,16 +295,27 @@ def analyze(
                 timing["conversion_and_scan_s"] += perf_counter() - phase
                 if due:
                     phase = perf_counter()
-                    obs, evidence = engine.read(
-                        image,
-                        exclusions,
-                        frame.pts,
-                        {"num": tb.numerator, "den": tb.denominator},
-                        time_s,
-                    )
+                    if hasattr(engine, "feed"):
+                        completed_frames = engine.feed(
+                            image,
+                            exclusions,
+                            frame.pts,
+                            {"num": tb.numerator, "den": tb.denominator},
+                            time_s,
+                            cut=scene or roi_changed,
+                            diff=diff,
+                        )
+                    else:
+                        obs, evidence = engine.read(
+                            image,
+                            exclusions,
+                            frame.pts,
+                            {"num": tb.numerator, "den": tb.denominator},
+                            time_s,
+                        )
+                        completed_frames = [(time_s, obs, evidence, scene or roi_changed)]
                     timing["ocr_s"] += perf_counter() - phase
                     counters["candidate_frames"] += 1
-                    counters["observations"] += len(obs)
                     if last_candidate is not None:
                         report["max_sample_gap_s"] = max(
                             report.get("max_sample_gap_s", 0),
@@ -290,20 +323,41 @@ def analyze(
                         )
                     last_candidate = time_s
                     phase = perf_counter()
-                    for row in obs:
-                        raw.write(json.dumps(observation_record(row), ensure_ascii=False) + "\n")
-                    assignments = tracker.update(time_s, obs, cut=scene or roi_changed)
-                    for event_id, row, save in assignments:
-                        if save:
-                            destination = output / "evidence" / f"{event_id}.png"
-                            ok, encoded = cv2.imencode(".png", evidence[row.id])
-                            if not ok:
-                                raise RuntimeError("Evidence image encoding failed")
-                            destination.write_bytes(encoded.tobytes())
+                    for f_time_s, obs, evidence, cut in completed_frames:
+                        counters["observations"] += len(obs)
+                        for row in obs:
+                            raw.write(json.dumps(observation_record(row), ensure_ascii=False) + "\n")
+                        target_obs = [row for row in obs if contains_chinese(row.text)] if config.get("chinese_only", True) else obs
+                        assignments = tracker.update(f_time_s, target_obs, cut=cut)
+                        for event_id, row, save in assignments:
+                            if save:
+                                destination = output / "evidence" / f"{event_id}.png"
+                                ok, encoded = cv2.imencode(".png", evidence[row.id])
+                                if not ok:
+                                    raise RuntimeError("Evidence image encoding failed")
+                                destination.write_bytes(encoded.tobytes())
                     timing["events_and_evidence_s"] += perf_counter() - phase
                 if perf_counter() - last_notify >= 1:
                     notify("ANALYZING", time_s)
                     last_notify = perf_counter()
+            phase = perf_counter()
+            remaining_frames = engine.flush_remaining() if hasattr(engine, "flush_remaining") else []
+            timing["ocr_s"] += perf_counter() - phase
+            phase = perf_counter()
+            for f_time_s, obs, evidence, cut in remaining_frames:
+                counters["observations"] += len(obs)
+                for row in obs:
+                    raw.write(json.dumps(observation_record(row), ensure_ascii=False) + "\n")
+                target_obs = [row for row in obs if contains_chinese(row.text)] if config.get("chinese_only", True) else obs
+                assignments = tracker.update(f_time_s, target_obs, cut=cut)
+                for event_id, row, save in assignments:
+                    if save:
+                        destination = output / "evidence" / f"{event_id}.png"
+                        ok, encoded = cv2.imencode(".png", evidence[row.id])
+                        if not ok:
+                            raise RuntimeError("Evidence image encoding failed")
+                        destination.write_bytes(encoded.tobytes())
+            timing["events_and_evidence_s"] += perf_counter() - phase
         if not counters["analyzed_frames"]:
             raise ValueError("No frames in the requested interval")
         tracker.boundary(request.end_s, "ANALYSIS_END")

@@ -200,3 +200,36 @@ def test_config_cannot_quietly_slow_watchdog_or_choose_unknown_backend():
         validate_config(config)
     with pytest.raises(ValueError):
         validate_config(dict(DEFAULT_CONFIG, provider="AUTO"))
+    with pytest.raises(ValueError):
+        validate_config(dict(DEFAULT_CONFIG, detector_backend="unknown_detector"))
+    valid = validate_config(dict(DEFAULT_CONFIG, detector_backend="chinese_detector"))
+    assert valid["detector_backend"] == "chinese_detector"
+
+
+def test_chinese_detector_manifest_family_accepted(tmp_path: Path):
+    from vnle.media import file_sha256
+    det = tmp_path / "det.onnx"
+    rec = tmp_path / "rec.onnx"
+    det.write_bytes(b"chinese detector")
+    rec.write_bytes(b"chinese recognizer")
+    manifest = {
+        "schema_version": 1,
+        "family": "Chinese-PPOCRv4-small",
+        "detector": {
+            "path": "det.onnx",
+            "sha256": file_sha256(det),
+            "license": "Apache-2.0",
+            "source": "test",
+        },
+        "recognizer": {
+            "path": "rec.onnx",
+            "sha256": file_sha256(rec),
+            "license": "Apache-2.0",
+            "source": "test",
+        },
+    }
+    file = tmp_path / "manifest.json"
+    file.write_text(json.dumps(manifest))
+    loaded = load_manifest(file)
+    assert loaded["family"] == "Chinese-PPOCRv4-small"
+
