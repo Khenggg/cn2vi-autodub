@@ -257,14 +257,19 @@ class RapidAdapter:
         time_s: float,
         cut: bool = False,
         diff: np.ndarray | None = None,
+        image_premasked: bool = False,
+        det_tensor: np.ndarray | None = None,
     ) -> list[tuple[float, list[Observation], dict, bool]]:
         from rapidocr.ch_ppocr_rec import TextRecInput
 
         height, width = image.shape[:2]
-        detector_input = image.copy()
-        for rect in exclusions:
-            x0, y0, x1, y1 = rect.pixels(width, height)
-            detector_input[y0:y1, x0:x1] = 0
+        if image_premasked:
+            detector_input = image
+        else:
+            detector_input = image.copy()
+            for rect in exclusions:
+                x0, y0, x1, y1 = rect.pixels(width, height)
+                detector_input[y0:y1, x0:x1] = 0
 
         if not hasattr(self, "cache"):
             from .cache import TemporalROICache
@@ -274,8 +279,24 @@ class RapidAdapter:
             )
         if not hasattr(self, "last_detector_time"):
             self.last_detector_time = -999.0
+        if not hasattr(self, "shadow_last_det_time"):
+            self.shadow_last_det_time = -999.0
         if not hasattr(self, "scene_epoch"):
             self.scene_epoch = 0
+        if not hasattr(self, "gate_mode"):
+            self.gate_mode = os.environ.get("VNLE_GATE_MODE", "off").strip().lower()
+        if not hasattr(self, "shadow_gate"):
+            self.shadow_gate = {
+                "mode": self.gate_mode,
+                "total_candidates": 0,
+                "would_run": 0,
+                "would_skip": 0,
+                "reasons": Counter(),
+                "gate_cpu_total_s": 0.0,
+                "would_skip_frames_with_new_boxes": 0,
+                "would_skip_frames_with_new_chinese_obs": 0,
+                "missed_chinese_samples": [],
+            }
 
         prof = getattr(self, "profiler", None)
 
@@ -304,42 +325,76 @@ class RapidAdapter:
         elapsed_since_det = time_s - self.last_detector_time
         watchdog_s = self.config.get("detector_watchdog_s", 0.5)
 
+        gate_decision = "WOULD_RUN"
+        gate_reason = "legacy_default"
         t_mg = perf_counter()
-        has_ext_motion = (
-            self.cache.has_external_motion(
-                diff,
-                (width, height),
+        if self.gate_mode in ("shadow", "active"):
+            ref_elapsed = (
+                time_s - self.shadow_last_det_time
+                if self.gate_mode == "shadow"
+                else elapsed_since_det
+            )
+            gate_decision, gate_reason = self.cache.evaluate_text_change_gate(
+                detector_input,
                 exclusions,
-                threshold=self.config.get("tile_change_threshold", 8.0) * 1.5,
-                min_motion_pixels=25,
+                cut=cut,
+                all_reliable=all_reliable,
+                elapsed_since_det=ref_elapsed,
+                watchdog_s=watchdog_s,
             )
-            if diff is not None
-            else True
-        )
-        if prof is not None:
-            prof.record("motion_gate", perf_counter() - t_mg)
+            dt_gate = perf_counter() - t_mg
+            self.shadow_gate["total_candidates"] += 1
+            self.shadow_gate["gate_cpu_total_s"] += dt_gate
+            self.shadow_gate["reasons"][gate_reason] += 1
+            if gate_decision == "WOULD_RUN":
+                self.shadow_gate["would_run"] += 1
+                self.shadow_last_det_time = time_s
+            else:
+                self.shadow_gate["would_skip"] += 1
+            if prof is not None:
+                prof.record("motion_gate", dt_gate)
 
-        need_detector = (
-            cut
-            or not self.cache.active_rois
-            or not all_reliable
-            or (
-                not enable_motion_gating
-                or has_ext_motion
-                or elapsed_since_det >= watchdog_s
+        if self.gate_mode == "active":
+            need_detector = (not enable_motion_gating) or (gate_decision == "WOULD_RUN")
+        else:
+            has_ext_motion = (
+                self.cache.has_external_motion(
+                    diff,
+                    (width, height),
+                    exclusions,
+                    threshold=self.config.get("tile_change_threshold", 8.0) * 1.5,
+                    min_motion_pixels=25,
+                )
+                if diff is not None
+                else True
             )
-        )
+            if prof is not None and self.gate_mode == "off":
+                prof.record("motion_gate", perf_counter() - t_mg)
+            need_detector = (
+                cut
+                or not self.cache.active_rois
+                or not all_reliable
+                or (
+                    not enable_motion_gating
+                    or has_ext_motion
+                    or elapsed_since_det >= watchdog_s
+                )
+            )
 
         candidate_boxes = []
         frame_cached_obs = list(cached_obs)
         frame_cached_ev = dict(cached_ev)
+        pre_det_obs_count = len(frame_cached_obs)
 
         if not need_detector and use_cache:
             self.calls["detector_skipped_frames"] += 1
         else:
             self.last_detector_time = time_s
             started = perf_counter()
-            detection = self.detector(detector_input)
+            if det_tensor is not None and hasattr(self.detector, "prepare_tensor"):
+                detection = self.detector(detector_input, prepro_img=det_tensor)
+            else:
+                detection = self.detector(detector_input)
             self.timings["detection_s"] += perf_counter() - started
             self.calls["detector_frames"] += 1
             self.calls["detector_tiles"] += 1
@@ -423,6 +478,9 @@ class RapidAdapter:
             "observations": list(frame_cached_obs),
             "evidence": dict(frame_cached_ev),
             "detector_input": detector_input,
+            "gate_decision": gate_decision,
+            "gate_reason": gate_reason,
+            "pre_det_obs_count": pre_det_obs_count,
         }
         self.pending_frames.append(frame_obj)
         for crop, polygon, tile, edge in candidate_boxes:
@@ -436,6 +494,8 @@ class RapidAdapter:
         return pre_cut_completed + self._drain_completed_frames()
 
     def _drain_completed_frames(self) -> list[tuple[float, list[Observation], dict, bool]]:
+        from .cache import contains_chinese
+
         completed = []
         while (
             self.pending_frames
@@ -444,6 +504,23 @@ class RapidAdapter:
         ):
             head = self.pending_frames.pop(0)
             head.pop("detector_input", None)
+            if (
+                getattr(self, "gate_mode", "off") == "shadow"
+                and head.get("gate_decision") == "WOULD_SKIP"
+            ):
+                new_obs = head["observations"][head.get("pre_det_obs_count", 0) :]
+                if new_obs:
+                    self.shadow_gate["would_skip_frames_with_new_boxes"] += 1
+                    new_zh = [o for o in new_obs if contains_chinese(o.text)]
+                    if new_zh:
+                        self.shadow_gate["would_skip_frames_with_new_chinese_obs"] += 1
+                        if len(self.shadow_gate["missed_chinese_samples"]) < 25:
+                            self.shadow_gate["missed_chinese_samples"].append(
+                                {
+                                    "time_s": round(float(head["time_s"]), 4),
+                                    "texts": [o.text for o in new_zh],
+                                }
+                            )
             completed.append(
                 (head["time_s"], head["observations"], head["evidence"], head["cut"])
             )
@@ -567,6 +644,23 @@ class RapidAdapter:
                 )
             else:
                 resources = prof.resource_sampler.stop()
+        sg = getattr(self, "shadow_gate", None)
+        shadow_gate_out = None
+        if sg is not None and sg.get("total_candidates", 0) > 0:
+            tot = sg["total_candidates"]
+            shadow_gate_out = {
+                "mode": sg["mode"],
+                "total_candidates": tot,
+                "would_run": sg["would_run"],
+                "would_skip": sg["would_skip"],
+                "would_skip_ratio": round(sg["would_skip"] / tot, 4),
+                "reasons": dict(sg["reasons"]),
+                "gate_cpu_total_s": round(sg["gate_cpu_total_s"], 6),
+                "gate_cpu_mean_ms": round((sg["gate_cpu_total_s"] / tot) * 1000.0, 4),
+                "would_skip_frames_with_new_boxes": sg["would_skip_frames_with_new_boxes"],
+                "would_skip_frames_with_new_chinese_obs": sg["would_skip_frames_with_new_chinese_obs"],
+                "missed_chinese_samples": sg["missed_chinese_samples"],
+            }
         return {
             "requested_provider": self.config["provider"],
             "runtime_dll_paths": self.runtime_dll_paths,
@@ -575,5 +669,6 @@ class RapidAdapter:
             "timings": dict(self.timings),
             "calls": dict(self.calls),
             "cache_stats": dict(self.cache.stats),
+            "shadow_gate": shadow_gate_out,
             "resources": resources,
         }

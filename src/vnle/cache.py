@@ -68,10 +68,14 @@ class TemporalROICache:
             "tracked_disappeared": 0,
             "skipped_recognitions": 0,
         }
+        self.last_det_stroke_map: np.ndarray | None = None
+        self.last_det_gray_thumb: np.ndarray | None = None
 
     def reset(self):
         """Clear active cache on shot boundary, scene cut, or exclusion change."""
         self.active_rois.clear()
+        self.last_det_stroke_map = None
+        self.last_det_gray_thumb = None
 
     def register_observations(
         self,
@@ -437,3 +441,75 @@ class TemporalROICache:
 
         moving_pixels = int(np.count_nonzero(motion_mask))
         return moving_pixels >= min_motion_pixels
+
+    def evaluate_text_change_gate(
+        self,
+        detector_input: np.ndarray,
+        exclusions: tuple[Rect, ...],
+        cut: bool,
+        all_reliable: bool,
+        elapsed_since_det: float,
+        watchdog_s: float = 0.5,
+        stroke_pixel_thresh: int = 28,
+        min_stroke_pixels: int = 20,
+    ) -> tuple[str, str]:
+        """Evaluate lightweight CPU stroke-gradient gate outside confirmed ROIs.
+
+        Returns (decision, reason) where decision is 'WOULD_RUN' or 'WOULD_SKIP'.
+        Updates reference stroke map whenever decision == 'WOULD_RUN'.
+        """
+        fh, fw = detector_input.shape[:2]
+        tw = max(64, min(256, fw // 4))
+        th = max(64, min(320, fh // 4))
+        gray_thumb = cv2.resize(
+            cv2.cvtColor(detector_input, cv2.COLOR_BGR2GRAY)
+            if detector_input.ndim == 3
+            else detector_input,
+            (tw, th),
+            interpolation=cv2.INTER_AREA,
+        )
+        gx = cv2.absdiff(gray_thumb[:, 2:], gray_thumb[:, :-2])
+        gy = cv2.absdiff(gray_thumb[2:, :], gray_thumb[:-2, :])
+        stroke_map = cv2.max(gx[1:-1, :], gy[:, 1:-1])
+
+        if cut:
+            self.last_det_stroke_map = stroke_map
+            self.last_det_gray_thumb = gray_thumb
+            return "WOULD_RUN", "scene_cut"
+        if self.last_det_stroke_map is None or self.last_det_stroke_map.shape != stroke_map.shape:
+            self.last_det_stroke_map = stroke_map
+            self.last_det_gray_thumb = gray_thumb
+            return "WOULD_RUN", "initial_or_post_reset"
+        if not all_reliable:
+            self.last_det_stroke_map = stroke_map
+            self.last_det_gray_thumb = gray_thumb
+            return "WOULD_RUN", "tracking_unreliable"
+        if elapsed_since_det >= watchdog_s:
+            self.last_det_stroke_map = stroke_map
+            self.last_det_gray_thumb = gray_thumb
+            return "WOULD_RUN", "watchdog"
+
+        sh, sw = stroke_map.shape[:2]
+        stroke_diff = cv2.absdiff(stroke_map, self.last_det_stroke_map)
+
+        for rect in exclusions:
+            ex0, ey0, ex1, ey1 = rect.pixels(sw, sh)
+            stroke_diff[ey0:ey1, ex0:ex1] = 0
+
+        for roi in self.active_rois.values():
+            if roi.status != "CONFIRMED":
+                continue
+            rx0, ry0, rx1, ry1 = roi.bbox
+            tx0 = max(0, int((rx0 / fw) * sw) - 3)
+            ty0 = max(0, int((ry0 / fh) * sh) - 3)
+            tx1 = min(sw, int((rx1 / fw) * sw) + 3)
+            ty1 = min(sh, int((ry1 / fh) * sh) + 3)
+            stroke_diff[ty0:ty1, tx0:tx1] = 0
+
+        active_stroke_pixels = int(np.count_nonzero(stroke_diff >= stroke_pixel_thresh))
+        if active_stroke_pixels >= min_stroke_pixels:
+            self.last_det_stroke_map = stroke_map
+            self.last_det_gray_thumb = gray_thumb
+            return "WOULD_RUN", "external_stroke_change"
+
+        return "WOULD_SKIP", "no_external_text_change"

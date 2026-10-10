@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import importlib.metadata
 import json
+import os
+import queue
 import subprocess
 import threading
 from collections import Counter
@@ -175,6 +177,10 @@ def analyze(
     timing = Counter()
     engine = None
     container = None
+    producer_thread = None
+    ev_queue = None
+    ev_thread = None
+    stop_producer = threading.Event()
     last_time = None
     last_frame_end = None
     reached_end = False
@@ -226,157 +232,37 @@ def analyze(
         container = av.open(str(video))
         stream = next(s for s in container.streams.video if s.index == media["stream_index"])
         stream.codec_context.thread_count = config["native_threads"]
+        decode_thread_type = os.environ.get("VNLE_DECODE_THREAD_TYPE", "").strip().upper()
+        if decode_thread_type in ("AUTO", "FRAME", "SLICE"):
+            stream.codec_context.thread_type = decode_thread_type
         origin = Fraction(media["origin"]["num"], media["origin"]["den"])
-        previous_gray = None
-        previous_roi = None
-        last_candidate = None
         last_notify = 0.0
         prof = getattr(engine, "profiler", None)
         prof_enabled = bool(prof is not None and getattr(prof, "enabled", False))
-        frames = iter(container.decode(stream))
-        with (output / "observations.jsonl").open("w", encoding="utf-8") as raw:
-            while True:
-                if cancel and cancel.is_set():
-                    raise Cancelled("Analysis cancelled; partial artifacts retained")
-                phase = perf_counter()
-                try:
-                    frame = next(frames)
-                except StopIteration:
-                    break
-                dt_decode = perf_counter() - phase
-                timing["decode_s"] += dt_decode
-                if prof_enabled:
-                    prof.record("frame_decode", dt_decode)
-                counters["decoded_frames"] += 1
-                if frame.pts is None or frame.time_base is None:
-                    raise ValueError(
-                        "Frame lacks presentation timestamp; index/fps fallback is disabled"
-                    )
-                tb = Fraction(frame.time_base)
-                time_s = float(frame.pts * tb - origin)
-                if last_time is not None and time_s < last_time:
-                    raise ValueError("Non-monotonic decoded PTS")
-                last_time = time_s
-                duration_pts = getattr(frame, "duration", None)
-                if duration_pts and duration_pts > 0:
-                    last_frame_end = time_s + float(duration_pts * tb)
-                else:
-                    last_frame_end = None
-                if time_s < request.start_s:
-                    continue
-                if time_s >= request.end_s:
-                    reached_end = True
-                    break
-                if frame.width != media["width"] or frame.height != media["height"]:
-                    raise ValueError("Source raster dimensions changed during analysis")
-                counters["analyzed_frames"] += 1
-                phase = perf_counter()
-                t_conv0 = perf_counter()
-                image = frame.to_ndarray(format="bgr24")
-                if prof_enabled:
-                    prof.record("frame_conversion", perf_counter() - t_conv0)
-                t_scan0 = perf_counter()
-                exclusions = request.at(time_s)
-                # Blank before thumbnail resize: excluded pixels cannot leak through interpolation.
-                for rect in exclusions:
-                    x0, y0, x1, y1 = rect.pixels(frame.width, frame.height)
-                    image[y0:y1, x0:x1] = 0
-                gray = cv2.resize(cv2.cvtColor(image, cv2.COLOR_BGR2GRAY), (256, 144))
-                roi_changed = exclusions != previous_roi
-                scene = False
-                changed = True
-                diff = None
-                if previous_gray is not None and not roi_changed:
-                    diff = cv2.absdiff(gray, previous_gray)
-                    scene = float(np.mean(diff)) >= config["scene_change_threshold"]
-                    # Every tile participates; no global averaging away a local update.
-                    tiles = diff.reshape(9, 16, 16, 16).mean(axis=(1, 3))
-                    changed = float(tiles.max()) >= config["tile_change_threshold"]
-                elapsed = float("inf") if last_candidate is None else time_s - last_candidate
-                due = (
-                    roi_changed
-                    or scene
-                    or elapsed >= config["watchdog_s"]
-                    or (changed and elapsed >= config["change_min_interval_s"])
-                )
-                previous_gray, previous_roi = gray, exclusions
-                if prof_enabled:
-                    prof.record("frame_scan", perf_counter() - t_scan0)
-                timing["conversion_and_scan_s"] += perf_counter() - phase
-                if due:
-                    phase = perf_counter()
-                    if hasattr(engine, "feed"):
-                        completed_frames = engine.feed(
-                            image,
-                            exclusions,
-                            frame.pts,
-                            {"num": tb.numerator, "den": tb.denominator},
-                            time_s,
-                            cut=scene or roi_changed,
-                            diff=diff,
-                        )
-                    else:
-                        obs, evidence = engine.read(
-                            image,
-                            exclusions,
-                            frame.pts,
-                            {"num": tb.numerator, "den": tb.denominator},
-                            time_s,
-                        )
-                        completed_frames = [(time_s, obs, evidence, scene or roi_changed)]
-                    timing["ocr_s"] += perf_counter() - phase
-                    counters["candidate_frames"] += 1
-                    if last_candidate is not None:
-                        report["max_sample_gap_s"] = max(
-                            report.get("max_sample_gap_s", 0),
-                            time_s - last_candidate,
-                        )
-                    last_candidate = time_s
-                    phase = perf_counter()
-                    for f_time_s, obs, evidence, cut in completed_frames:
-                        t_ev0 = perf_counter()
-                        counters["observations"] += len(obs)
-                        for row in obs:
-                            raw.write(json.dumps(observation_record(row), ensure_ascii=False) + "\n")
-                        target_obs = [row for row in obs if contains_chinese(row.text)] if config.get("chinese_only", True) else obs
-                        assignments = tracker.update(f_time_s, target_obs, cut=cut)
-                        if prof_enabled:
-                            prof.record("event_builder", perf_counter() - t_ev0)
-                        for event_id, row, save in assignments:
-                            if save:
-                                destination = output / "evidence" / f"{event_id}.png"
-                                t_enc0 = perf_counter()
-                                ok, encoded = cv2.imencode(".png", evidence[row.id])
-                                if prof_enabled:
-                                    prof.record("evidence_png_encode", perf_counter() - t_enc0)
-                                if not ok:
-                                    raise RuntimeError("Evidence image encoding failed")
-                                t_w0 = perf_counter()
-                                destination.write_bytes(encoded.tobytes())
-                                if prof_enabled:
-                                    prof.record("evidence_disk_write", perf_counter() - t_w0)
-                    timing["events_and_evidence_s"] += perf_counter() - phase
-                if perf_counter() - last_notify >= 1:
-                    notify("ANALYZING", time_s)
-                    last_notify = perf_counter()
-            phase = perf_counter()
-            remaining_frames = engine.flush_remaining() if hasattr(engine, "flush_remaining") else []
-            timing["ocr_s"] += perf_counter() - phase
-            phase = perf_counter()
-            for f_time_s, obs, evidence, cut in remaining_frames:
-                t_ev0 = perf_counter()
-                counters["observations"] += len(obs)
-                for row in obs:
-                    raw.write(json.dumps(observation_record(row), ensure_ascii=False) + "\n")
-                target_obs = [row for row in obs if contains_chinese(row.text)] if config.get("chinese_only", True) else obs
-                assignments = tracker.update(f_time_s, target_obs, cut=cut)
-                if prof_enabled:
-                    prof.record("event_builder", perf_counter() - t_ev0)
-                for event_id, row, save in assignments:
-                    if save:
-                        destination = output / "evidence" / f"{event_id}.png"
+        queue_capacity = int(os.environ.get("VNLE_PIPELINE_QUEUE", "4"))
+        use_async_ev = (
+            queue_capacity > 0
+            and os.environ.get("VNLE_ASYNC_EVIDENCE", "1").strip() not in ("0", "false", "no")
+        )
+        use_prod_det_prep = (
+            queue_capacity > 0
+            and os.environ.get("VNLE_PRODUCER_DET_PREP", "1").strip() not in ("0", "false", "no")
+        )
+        ev_queue: queue.Queue | None = queue.Queue(maxsize=64) if use_async_ev else None
+        ev_errors: list[BaseException] = []
+        ev_thread: threading.Thread | None = None
+
+        if ev_queue is not None:
+            def _ev_worker():
+                while True:
+                    item = ev_queue.get()
+                    if item is None:
+                        ev_queue.task_done()
+                        break
+                    destination, crop_img = item
+                    try:
                         t_enc0 = perf_counter()
-                        ok, encoded = cv2.imencode(".png", evidence[row.id])
+                        ok, encoded = cv2.imencode(".png", crop_img)
                         if prof_enabled:
                             prof.record("evidence_png_encode", perf_counter() - t_enc0)
                         if not ok:
@@ -385,7 +271,403 @@ def analyze(
                         destination.write_bytes(encoded.tobytes())
                         if prof_enabled:
                             prof.record("evidence_disk_write", perf_counter() - t_w0)
-            timing["events_and_evidence_s"] += perf_counter() - phase
+                    except BaseException as exc:
+                        ev_errors.append(exc)
+                    finally:
+                        ev_queue.task_done()
+
+            ev_thread = threading.Thread(target=_ev_worker, name="vnle-evidence-writer", daemon=True)
+            ev_thread.start()
+
+        def _write_completed(raw_fp, completed_frames):
+            phase_ev = perf_counter()
+            for f_time_s, obs, evidence, cut in completed_frames:
+                t_ev0 = perf_counter()
+                counters["observations"] += len(obs)
+                for row in obs:
+                    raw_fp.write(json.dumps(observation_record(row), ensure_ascii=False) + "\n")
+                target_obs = (
+                    [row for row in obs if contains_chinese(row.text)]
+                    if config.get("chinese_only", True)
+                    else obs
+                )
+                assignments = tracker.update(f_time_s, target_obs, cut=cut)
+                if prof_enabled:
+                    prof.record("event_builder", perf_counter() - t_ev0)
+                for event_id, row, save in assignments:
+                    if save:
+                        if ev_errors:
+                            raise ev_errors[0]
+                        destination = output / "evidence" / f"{event_id}.png"
+                        if ev_queue is not None:
+                            ev_queue.put((destination, evidence[row.id]))
+                        else:
+                            t_enc0 = perf_counter()
+                            ok, encoded = cv2.imencode(".png", evidence[row.id])
+                            if prof_enabled:
+                                prof.record("evidence_png_encode", perf_counter() - t_enc0)
+                            if not ok:
+                                raise RuntimeError("Evidence image encoding failed")
+                            t_w0 = perf_counter()
+                            destination.write_bytes(encoded.tobytes())
+                            if prof_enabled:
+                                prof.record("evidence_disk_write", perf_counter() - t_w0)
+            timing["events_and_evidence_s"] += perf_counter() - phase_ev
+
+        with (output / "observations.jsonl").open("w", encoding="utf-8") as raw:
+            if queue_capacity <= 0:
+                previous_gray = None
+                previous_roi = None
+                last_candidate = None
+                frames = iter(container.decode(stream))
+                while True:
+                    if cancel and cancel.is_set():
+                        raise Cancelled("Analysis cancelled; partial artifacts retained")
+                    phase = perf_counter()
+                    try:
+                        frame = next(frames)
+                    except StopIteration:
+                        break
+                    dt_decode = perf_counter() - phase
+                    timing["decode_s"] += dt_decode
+                    if prof_enabled:
+                        prof.record("frame_decode", dt_decode)
+                    counters["decoded_frames"] += 1
+                    if frame.pts is None or frame.time_base is None:
+                        raise ValueError(
+                            "Frame lacks presentation timestamp; index/fps fallback is disabled"
+                        )
+                    tb = Fraction(frame.time_base)
+                    time_s = float(frame.pts * tb - origin)
+                    if last_time is not None and time_s < last_time:
+                        raise ValueError("Non-monotonic decoded PTS")
+                    last_time = time_s
+                    duration_pts = getattr(frame, "duration", None)
+                    if duration_pts and duration_pts > 0:
+                        last_frame_end = time_s + float(duration_pts * tb)
+                    else:
+                        last_frame_end = None
+                    if time_s < request.start_s:
+                        continue
+                    if time_s >= request.end_s:
+                        reached_end = True
+                        break
+                    if frame.width != media["width"] or frame.height != media["height"]:
+                        raise ValueError("Source raster dimensions changed during analysis")
+                    counters["analyzed_frames"] += 1
+                    phase = perf_counter()
+                    t_conv0 = perf_counter()
+                    image = frame.to_ndarray(format="bgr24")
+                    if prof_enabled:
+                        prof.record("frame_conversion", perf_counter() - t_conv0)
+                    t_scan0 = perf_counter()
+                    exclusions = request.at(time_s)
+                    for rect in exclusions:
+                        x0, y0, x1, y1 = rect.pixels(frame.width, frame.height)
+                        image[y0:y1, x0:x1] = 0
+                    gray = cv2.resize(cv2.cvtColor(image, cv2.COLOR_BGR2GRAY), (256, 144))
+                    roi_changed = exclusions != previous_roi
+                    scene = False
+                    changed = True
+                    diff = None
+                    if previous_gray is not None and not roi_changed:
+                        diff = cv2.absdiff(gray, previous_gray)
+                        scene = float(np.mean(diff)) >= config["scene_change_threshold"]
+                        tiles = diff.reshape(9, 16, 16, 16).mean(axis=(1, 3))
+                        changed = float(tiles.max()) >= config["tile_change_threshold"]
+                    elapsed = float("inf") if last_candidate is None else time_s - last_candidate
+                    due = (
+                        roi_changed
+                        or scene
+                        or elapsed >= config["watchdog_s"]
+                        or (changed and elapsed >= config["change_min_interval_s"])
+                    )
+                    previous_gray, previous_roi = gray, exclusions
+                    if prof_enabled:
+                        prof.record("frame_scan", perf_counter() - t_scan0)
+                    timing["conversion_and_scan_s"] += perf_counter() - phase
+                    if due:
+                        phase = perf_counter()
+                        if hasattr(engine, "feed"):
+                            completed_frames = engine.feed(
+                                image,
+                                exclusions,
+                                frame.pts,
+                                {"num": tb.numerator, "den": tb.denominator},
+                                time_s,
+                                cut=scene or roi_changed,
+                                diff=diff,
+                                image_premasked=True,
+                            )
+                        else:
+                            obs, evidence = engine.read(
+                                image,
+                                exclusions,
+                                frame.pts,
+                                {"num": tb.numerator, "den": tb.denominator},
+                                time_s,
+                            )
+                            completed_frames = [(time_s, obs, evidence, scene or roi_changed)]
+                        timing["ocr_s"] += perf_counter() - phase
+                        counters["candidate_frames"] += 1
+                        if last_candidate is not None:
+                            report["max_sample_gap_s"] = max(
+                                report.get("max_sample_gap_s", 0),
+                                time_s - last_candidate,
+                            )
+                        last_candidate = time_s
+                        _write_completed(raw, completed_frames)
+                    if perf_counter() - last_notify >= 1:
+                        notify("ANALYZING", time_s)
+                        last_notify = perf_counter()
+                report["pipeline_parallel"] = {
+                    "mode": "sequential",
+                    "queue_capacity": 0,
+                    "decode_thread_type": decode_thread_type or "DEFAULT",
+                }
+            else:
+                cand_queue: queue.Queue = queue.Queue(maxsize=queue_capacity)
+                prod_stats = {
+                    "decode_s": 0.0,
+                    "conversion_and_scan_s": 0.0,
+                    "det_prep_s": 0.0,
+                    "producer_blocked_s": 0.0,
+                    "decoded_frames": 0,
+                    "analyzed_frames": 0,
+                    "last_time": None,
+                    "last_frame_end": None,
+                    "reached_end": False,
+                    "max_sample_gap_s": 0.0,
+                }
+                consumer_idle_s = 0.0
+                queue_occupancy_samples: list[int] = []
+                det_prep_fn = (
+                    getattr(getattr(engine, "detector", None), "prepare_tensor", None)
+                    if use_prod_det_prep
+                    else None
+                )
+                num_slots = queue_capacity + 4
+
+                def _put_with_wait(item):
+                    while not stop_producer.is_set():
+                        if cancel and cancel.is_set():
+                            return False
+                        t_put0 = perf_counter()
+                        try:
+                            cand_queue.put(item, timeout=0.05)
+                            prod_stats["producer_blocked_s"] += perf_counter() - t_put0
+                            return True
+                        except queue.Full:
+                            prod_stats["producer_blocked_s"] += perf_counter() - t_put0
+                    return False
+
+                def _producer():
+                    p_prev_gray = None
+                    p_prev_roi = None
+                    p_last_cand = None
+                    p_slot = 0
+                    try:
+                        p_frames = iter(container.decode(stream))
+                        while not stop_producer.is_set():
+                            if cancel and cancel.is_set():
+                                _put_with_wait(
+                                    ("ERR", Cancelled("Analysis cancelled; partial artifacts retained"))
+                                )
+                                return
+                            t_dec0 = perf_counter()
+                            try:
+                                frame = next(p_frames)
+                            except StopIteration:
+                                break
+                            dt_decode = perf_counter() - t_dec0
+                            prod_stats["decode_s"] += dt_decode
+                            if prof_enabled:
+                                prof.record("frame_decode", dt_decode)
+                            prod_stats["decoded_frames"] += 1
+                            if frame.pts is None or frame.time_base is None:
+                                raise ValueError(
+                                    "Frame lacks presentation timestamp; index/fps fallback is disabled"
+                                )
+                            tb = Fraction(frame.time_base)
+                            time_s = float(frame.pts * tb - origin)
+                            if prod_stats["last_time"] is not None and time_s < prod_stats["last_time"]:
+                                raise ValueError("Non-monotonic decoded PTS")
+                            prod_stats["last_time"] = time_s
+                            duration_pts = getattr(frame, "duration", None)
+                            if duration_pts and duration_pts > 0:
+                                prod_stats["last_frame_end"] = time_s + float(duration_pts * tb)
+                            else:
+                                prod_stats["last_frame_end"] = None
+                            if time_s < request.start_s:
+                                continue
+                            if time_s >= request.end_s:
+                                prod_stats["reached_end"] = True
+                                break
+                            if frame.width != media["width"] or frame.height != media["height"]:
+                                raise ValueError("Source raster dimensions changed during analysis")
+                            prod_stats["analyzed_frames"] += 1
+                            t_cs0 = perf_counter()
+                            t_conv0 = perf_counter()
+                            image = frame.to_ndarray(format="bgr24")
+                            if prof_enabled:
+                                prof.record("frame_conversion", perf_counter() - t_conv0)
+                            t_scan0 = perf_counter()
+                            exclusions = request.at(time_s)
+                            for rect in exclusions:
+                                x0, y0, x1, y1 = rect.pixels(frame.width, frame.height)
+                                image[y0:y1, x0:x1] = 0
+                            gray = cv2.resize(cv2.cvtColor(image, cv2.COLOR_BGR2GRAY), (256, 144))
+                            roi_changed = exclusions != p_prev_roi
+                            scene = False
+                            changed = True
+                            diff = None
+                            if p_prev_gray is not None and not roi_changed:
+                                diff = cv2.absdiff(gray, p_prev_gray)
+                                scene = float(np.mean(diff)) >= config["scene_change_threshold"]
+                                tiles = diff.reshape(9, 16, 16, 16).mean(axis=(1, 3))
+                                changed = float(tiles.max()) >= config["tile_change_threshold"]
+                            elapsed = float("inf") if p_last_cand is None else time_s - p_last_cand
+                            due = (
+                                roi_changed
+                                or scene
+                                or elapsed >= config["watchdog_s"]
+                                or (changed and elapsed >= config["change_min_interval_s"])
+                            )
+                            p_prev_gray, p_prev_roi = gray, exclusions
+                            if prof_enabled:
+                                prof.record("frame_scan", perf_counter() - t_scan0)
+                            prod_stats["conversion_and_scan_s"] += perf_counter() - t_cs0
+                            if due:
+                                if p_last_cand is not None:
+                                    prod_stats["max_sample_gap_s"] = max(
+                                        prod_stats["max_sample_gap_s"],
+                                        time_s - p_last_cand,
+                                    )
+                                p_last_cand = time_s
+                                det_tensor = None
+                                if det_prep_fn is not None:
+                                    t_dp0 = perf_counter()
+                                    det_tensor = det_prep_fn(image, slot=p_slot)
+                                    prod_stats["det_prep_s"] += perf_counter() - t_dp0
+                                    p_slot = (p_slot + 1) % num_slots
+                                payload = (
+                                    image,
+                                    exclusions,
+                                    frame.pts,
+                                    {"num": tb.numerator, "den": tb.denominator},
+                                    time_s,
+                                    scene or roi_changed,
+                                    diff,
+                                    det_tensor,
+                                )
+                                if not _put_with_wait(("ITEM", payload)):
+                                    return
+                        _put_with_wait(("EOF", None))
+                    except BaseException as exc:
+                        _put_with_wait(("ERR", exc))
+
+                producer_thread = threading.Thread(
+                    target=_producer, name="vnle-decode-producer", daemon=True
+                )
+                producer_thread.start()
+
+                while True:
+                    if cancel and cancel.is_set():
+                        stop_producer.set()
+                        raise Cancelled("Analysis cancelled; partial artifacts retained")
+                    queue_occupancy_samples.append(cand_queue.qsize())
+                    t_get0 = perf_counter()
+                    try:
+                        kind, payload = cand_queue.get(timeout=0.05)
+                        consumer_idle_s += perf_counter() - t_get0
+                    except queue.Empty:
+                        consumer_idle_s += perf_counter() - t_get0
+                        continue
+                    if kind == "EOF":
+                        break
+                    if kind == "ERR":
+                        stop_producer.set()
+                        raise payload
+                    image, exclusions, pts, tb_dict, time_s, cut_flag, diff, det_tensor = payload
+                    phase = perf_counter()
+                    if hasattr(engine, "feed"):
+                        completed_frames = engine.feed(
+                            image,
+                            exclusions,
+                            pts,
+                            tb_dict,
+                            time_s,
+                            cut=cut_flag,
+                            diff=diff,
+                            image_premasked=True,
+                            det_tensor=det_tensor,
+                        )
+                    else:
+                        obs, evidence = engine.read(
+                            image,
+                            exclusions,
+                            pts,
+                            tb_dict,
+                            time_s,
+                        )
+                        completed_frames = [(time_s, obs, evidence, cut_flag)]
+                    timing["ocr_s"] += perf_counter() - phase
+                    counters["candidate_frames"] += 1
+                    _write_completed(raw, completed_frames)
+                    if perf_counter() - last_notify >= 1:
+                        counters["decoded_frames"] = prod_stats["decoded_frames"]
+                        counters["analyzed_frames"] = prod_stats["analyzed_frames"]
+                        notify("ANALYZING", time_s)
+                        last_notify = perf_counter()
+
+                producer_thread.join(timeout=5.0)
+                timing["decode_s"] = prod_stats["decode_s"]
+                timing["conversion_and_scan_s"] = prod_stats["conversion_and_scan_s"]
+                timing["producer_det_prep_s"] = prod_stats["det_prep_s"]
+                timing["producer_blocked_s"] = prod_stats["producer_blocked_s"]
+                timing["consumer_idle_s"] = consumer_idle_s
+                counters["decoded_frames"] = prod_stats["decoded_frames"]
+                counters["analyzed_frames"] = prod_stats["analyzed_frames"]
+                last_time = prod_stats["last_time"]
+                last_frame_end = prod_stats["last_frame_end"]
+                reached_end = prod_stats["reached_end"]
+                if prod_stats["max_sample_gap_s"] > 0:
+                    report["max_sample_gap_s"] = prod_stats["max_sample_gap_s"]
+                occ_arr = np.array(queue_occupancy_samples, dtype=np.float64) if queue_occupancy_samples else np.zeros(1)
+                report["pipeline_parallel"] = {
+                    "mode": "producer_consumer",
+                    "queue_capacity": queue_capacity,
+                    "decode_thread_type": decode_thread_type or "DEFAULT",
+                    "producer_det_prep": bool(det_prep_fn is not None),
+                    "async_evidence": bool(ev_queue is not None),
+                    "producer_decode_s": round(prod_stats["decode_s"], 6),
+                    "producer_scan_s": round(prod_stats["conversion_and_scan_s"], 6),
+                    "producer_det_prep_s": round(prod_stats["det_prep_s"], 6),
+                    "producer_active_s": round(
+                        prod_stats["decode_s"]
+                        + prod_stats["conversion_and_scan_s"]
+                        + prod_stats["det_prep_s"],
+                        6,
+                    ),
+                    "producer_blocked_s": round(prod_stats["producer_blocked_s"], 6),
+                    "consumer_idle_s": round(consumer_idle_s, 6),
+                    "queue_occupancy_mean": round(float(occ_arr.mean()), 3),
+                    "queue_occupancy_p50": round(float(np.percentile(occ_arr, 50)), 3),
+                    "queue_occupancy_p95": round(float(np.percentile(occ_arr, 95)), 3),
+                    "queue_occupancy_max": int(occ_arr.max()),
+                }
+
+            phase = perf_counter()
+            remaining_frames = engine.flush_remaining() if hasattr(engine, "flush_remaining") else []
+            timing["ocr_s"] += perf_counter() - phase
+            _write_completed(raw, remaining_frames)
+            if ev_queue is not None and ev_thread is not None:
+                phase_ev_flush = perf_counter()
+                ev_queue.put(None)
+                ev_thread.join(timeout=30.0)
+                timing["events_and_evidence_s"] += perf_counter() - phase_ev_flush
+                if ev_errors:
+                    raise ev_errors[0]
         if not counters["analyzed_frames"]:
             raise ValueError("No frames in the requested interval")
         tracker.boundary(request.end_s, "ANALYSIS_END")
@@ -408,6 +690,15 @@ def analyze(
         report["status"] = "FAILED"
         report["error"] = f"{type(exc).__name__}: {exc}"
     finally:
+        stop_producer.set()
+        if producer_thread is not None and producer_thread.is_alive():
+            producer_thread.join(timeout=5.0)
+        if ev_queue is not None and ev_thread is not None and ev_thread.is_alive():
+            try:
+                ev_queue.put_nowait(None)
+            except queue.Full:
+                pass
+            ev_thread.join(timeout=5.0)
         if container:
             container.close()
         if engine:

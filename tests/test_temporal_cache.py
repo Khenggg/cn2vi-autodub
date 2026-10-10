@@ -548,3 +548,194 @@ def test_resource_sampler_and_ort_profiling_toggle(tmp_path):
     assert summary["resources"]["sample_count"] >= 1
 
 
+def test_text_change_gate_and_shadow_mode_telemetry():
+    cache = TemporalROICache(similarity_threshold=0.82, chinese_only=True)
+    frame0 = make_text_image("TASK DONE", size=(180, 320), pos=(60, 50))
+    poly = [[55.0, 20.0], [200.0, 20.0], [200.0, 60.0], [55.0, 60.0]]
+    obs0 = Observation(
+        id=1,
+        pts=0,
+        time_base={"num": 1, "den": 1000},
+        time_s=0.0,
+        polygon=poly,
+        text="任务完成",
+        score=0.96,
+        crop_sha256="hash0",
+        tile=(0, 0, 320, 180),
+        touches_tile_edge=False,
+    )
+    cache.register_observations([obs0], frame0)
+
+    # Initial frame after reset -> WOULD_RUN (initial_or_post_reset)
+    dec, reason = cache.evaluate_text_change_gate(
+        frame0, (), cut=False, all_reliable=True, elapsed_since_det=0.08, watchdog_s=0.5
+    )
+    assert dec == "WOULD_RUN"
+    assert reason == "initial_or_post_reset"
+
+    # Static second frame with reliable tracking -> WOULD_SKIP
+    dec2, reason2 = cache.evaluate_text_change_gate(
+        frame0.copy(), (), cut=False, all_reliable=True, elapsed_since_det=0.08, watchdog_s=0.5
+    )
+    assert dec2 == "WOULD_SKIP"
+    assert reason2 == "no_external_text_change"
+
+    # Unreliable tracking -> WOULD_RUN
+    dec3, reason3 = cache.evaluate_text_change_gate(
+        frame0.copy(), (), cut=False, all_reliable=False, elapsed_since_det=0.16, watchdog_s=0.5
+    )
+    assert dec3 == "WOULD_RUN"
+    assert reason3 == "tracking_unreliable"
+
+    # Watchdog expired -> WOULD_RUN
+    dec4, reason4 = cache.evaluate_text_change_gate(
+        frame0.copy(), (), cut=False, all_reliable=True, elapsed_since_det=0.55, watchdog_s=0.5
+    )
+    assert dec4 == "WOULD_RUN"
+    assert reason4 == "watchdog"
+
+    # New external text strokes outside tracked ROI -> WOULD_RUN
+    frame_new = frame0.copy()
+    cv2.putText(
+        frame_new, "NEW_TEXT_888", (40, 140), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2
+    )
+    dec5, reason5 = cache.evaluate_text_change_gate(
+        frame_new, (), cut=False, all_reliable=True, elapsed_since_det=0.08, watchdog_s=0.5
+    )
+    assert dec5 == "WOULD_RUN"
+    assert reason5 == "external_stroke_change"
+
+
+def test_producer_consumer_equivalence_and_cancellation(tmp_path, monkeypatch):
+    import json
+    import threading
+    from fractions import Fraction
+    import av
+    from vnle.domain import Request
+    from vnle.media import file_sha256
+    from vnle.pipeline import DEFAULT_CONFIG, analyze
+
+    video = tmp_path / "pc_test.mkv"
+    timestamps = [0, 100, 200, 350, 500, 650, 800, 950]
+    with av.open(str(video), "w") as out_c:
+        stream = out_c.add_stream("ffv1", rate=10)
+        stream.width, stream.height = 160, 120
+        stream.pix_fmt = "yuv420p"
+        stream.time_base = Fraction(1, 1000)
+        stream.codec_context.time_base = Fraction(1, 1000)
+        for idx, t in enumerate(timestamps):
+            img = np.zeros((120, 160, 3), dtype=np.uint8)
+            cv2.putText(img, f"T{idx}", (20, 50), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
+            frame = av.VideoFrame.from_ndarray(img, format="bgr24")
+            frame.pts, frame.time_base = t, Fraction(1, 1000)
+            for packet in stream.encode(frame):
+                out_c.mux(packet)
+        for packet in stream.encode():
+            out_c.mux(packet)
+
+    det, rec = tmp_path / "det", tmp_path / "rec"
+    det.write_bytes(b"fake detector")
+    rec.write_bytes(b"fake recognizer")
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "family": "PP-OCRv6-small",
+                "detector": {
+                    "path": "det",
+                    "sha256": file_sha256(det),
+                    "license": "Apache-2.0",
+                    "source": "test",
+                },
+                "recognizer": {
+                    "path": "rec",
+                    "sha256": file_sha256(rec),
+                    "license": "Apache-2.0",
+                    "source": "test",
+                },
+            }
+        )
+    )
+
+    class FakeFeedOCR:
+        def __init__(self, *args):
+            self.counter = 0
+            self.detector = type(
+                "Det",
+                (),
+                {"prepare_tensor": staticmethod(lambda img, slot=0: np.zeros((1, 3, 32, 32), dtype=np.float32))},
+            )()
+
+        def feed(
+            self,
+            image,
+            exclusions,
+            pts,
+            time_base,
+            time_s,
+            cut=False,
+            diff=None,
+            image_premasked=False,
+            det_tensor=None,
+        ):
+            assert image_premasked is True
+            self.counter += 1
+            row = Observation(
+                self.counter,
+                pts,
+                time_base,
+                time_s,
+                [[10.0, 10.0], [80.0, 10.0], [80.0, 40.0], [10.0, 40.0]],
+                "系统提示" if time_s < 0.5 else "任务更新",
+                0.95,
+                "b" * 64,
+                (0, 0, 160, 96),
+            )
+            return [(time_s, [row], {row.id: image[:20, :20].copy()}, cut)]
+
+        def flush_remaining(self):
+            return []
+
+        def finish(self):
+            return {"fake": True, "calls": {"detector_frames": self.counter}}
+
+    monkeypatch.setattr("vnle.pipeline.RapidAdapter", FakeFeedOCR)
+    req = Request.parse(
+        {
+            "roi_confirmed": True,
+            "start_s": 0,
+            "end_s": 1,
+            "exclusions": [{"x": 0, "y": 0.8, "width": 1, "height": 0.2}],
+        },
+        1,
+    )
+    media = {"width": 160, "height": 120, "stream_index": 0, "origin": {"num": 0, "den": 1}}
+    cfg = dict(DEFAULT_CONFIG, provider="CPUExecutionProvider", chinese_only=True)
+
+    monkeypatch.setenv("VNLE_PIPELINE_QUEUE", "0")
+    rep_seq = analyze(video, media, req, tmp_path / "run_seq", manifest, cfg)
+
+    monkeypatch.setenv("VNLE_PIPELINE_QUEUE", "4")
+    rep_par = analyze(video, media, req, tmp_path / "run_par", manifest, cfg)
+
+    assert rep_seq["status"] == "COMPLETED_UNVERIFIED"
+    assert rep_par["status"] == "COMPLETED_UNVERIFIED"
+    assert rep_seq["counters"] == rep_par["counters"]
+    assert rep_par["pipeline_parallel"]["mode"] == "producer_consumer"
+    assert rep_par["pipeline_parallel"]["producer_det_prep"] is True
+    assert rep_par["pipeline_parallel"]["async_evidence"] is True
+    assert (tmp_path / "run_seq" / "observations.jsonl").read_text(encoding="utf-8") == (
+        tmp_path / "run_par" / "observations.jsonl"
+    ).read_text(encoding="utf-8")
+    assert json.loads((tmp_path / "run_seq" / "events.json").read_text(encoding="utf-8")) == (
+        json.loads((tmp_path / "run_par" / "events.json").read_text(encoding="utf-8"))
+    )
+
+    # Verify clean cancellation in Producer-Consumer mode
+    cancel_ev = threading.Event()
+    cancel_ev.set()
+    rep_cancel = analyze(video, media, req, tmp_path / "run_cancel", manifest, cfg, cancel=cancel_ev)
+    assert rep_cancel["status"] == "CANCELLED"
+
+

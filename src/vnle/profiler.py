@@ -458,29 +458,21 @@ def make_profiled_detector(base_detector, profiler: GranularProfiler):
         ).astype(np.float32)
         for c in range(3)
     ]
-    tensor_buffers: dict[tuple[int, int], np.ndarray] = {}
-    u8_buffers: dict[tuple[int, int], list[np.ndarray]] = {}
+    tensor_buffers: dict[tuple[int, int, int], np.ndarray] = {}
+    u8_buffers: dict[tuple[int, int, int], list[np.ndarray]] = {}
 
-    def profiled_call(img: np.ndarray) -> TextDetOutput:
+    def prepare_tensor(img: np.ndarray, slot: int = 0) -> np.ndarray | None:
         prof_on = profiler.enabled
-        t_total = perf_counter() if prof_on else 0.0
-        if img is None:
-            raise ValueError("img is None")
-
-        ori_img_shape = img.shape[0], img.shape[1]
-
         t0 = perf_counter() if prof_on else 0.0
         resized_img = inner_pre.resize(img)
         if prof_on:
             profiler.record("det_preprocess_resize", perf_counter() - t0)
         if resized_img is None:
-            if prof_on:
-                profiler.record("det_total", perf_counter() - t_total)
-            return TextDetOutput()
+            return None
 
         t0 = perf_counter() if prof_on else 0.0
         rh, rw = resized_img.shape[:2]
-        shape_key = (rh, rw)
+        shape_key = (int(slot), rh, rw)
         prepro_img = tensor_buffers.get(shape_key)
         if prepro_img is None:
             prepro_img = np.empty((1, 3, rh, rw), dtype=np.float32)
@@ -500,8 +492,23 @@ def make_profiled_detector(base_detector, profiler: GranularProfiler):
         if prof_on:
             profiler.record("det_preprocess_normalize", perf_counter() - t0)
             profiler.record_det_shape(prepro_img.shape)
-            t0 = perf_counter()
+        return prepro_img
 
+    def profiled_call(img: np.ndarray, prepro_img: np.ndarray | None = None) -> TextDetOutput:
+        prof_on = profiler.enabled
+        t_total = perf_counter() if prof_on else 0.0
+        if img is None:
+            raise ValueError("img is None")
+
+        ori_img_shape = img.shape[0], img.shape[1]
+        if prepro_img is None:
+            prepro_img = prepare_tensor(img, slot=0)
+            if prepro_img is None:
+                if prof_on:
+                    profiler.record("det_total", perf_counter() - t_total)
+                return TextDetOutput()
+
+        t0 = perf_counter() if prof_on else 0.0
         preds = inner.session(prepro_img)
         if prof_on:
             profiler.record("det_runtime_call", perf_counter() - t0)
@@ -586,6 +593,7 @@ def make_profiled_detector(base_detector, profiler: GranularProfiler):
             elapse = 0.0
         return TextDetOutput(img, boxes, scores, elapse=elapse)
 
+    profiled_call.prepare_tensor = prepare_tensor
     return profiled_call
 
 
