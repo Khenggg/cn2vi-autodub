@@ -739,3 +739,250 @@ def test_producer_consumer_equivalence_and_cancellation(tmp_path, monkeypatch):
     assert rep_cancel["status"] == "CANCELLED"
 
 
+def test_midstream_cancellation_with_inflight_evidence(tmp_path, monkeypatch):
+    """Verify mid-stream cancellation cleanly shuts down producer and async evidence writer."""
+    import json
+    import threading
+    import time
+    from fractions import Fraction
+    import av
+    from vnle.domain import Request
+    from vnle.media import file_sha256
+    from vnle.pipeline import DEFAULT_CONFIG, analyze
+
+    video = tmp_path / "cancel_test.mkv"
+    timestamps = [0, 100, 200, 300, 400, 500, 600, 700]
+    with av.open(str(video), "w") as out_c:
+        stream = out_c.add_stream("ffv1", rate=10)
+        stream.width, stream.height = 160, 120
+        stream.pix_fmt = "yuv420p"
+        stream.time_base = Fraction(1, 1000)
+        stream.codec_context.time_base = Fraction(1, 1000)
+        for idx, t in enumerate(timestamps):
+            img = np.zeros((120, 160, 3), dtype=np.uint8)
+            cv2.putText(img, f"F{idx}", (20, 50), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
+            frame = av.VideoFrame.from_ndarray(img, format="bgr24")
+            frame.pts, frame.time_base = t, Fraction(1, 1000)
+            for packet in stream.encode(frame):
+                out_c.mux(packet)
+        for packet in stream.encode():
+            out_c.mux(packet)
+
+    det, rec = tmp_path / "det", tmp_path / "rec"
+    det.write_bytes(b"fake detector")
+    rec.write_bytes(b"fake recognizer")
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "family": "PP-OCRv6-small",
+                "detector": {
+                    "path": "det",
+                    "sha256": file_sha256(det),
+                    "license": "Apache-2.0",
+                    "source": "test",
+                },
+                "recognizer": {
+                    "path": "rec",
+                    "sha256": file_sha256(rec),
+                    "license": "Apache-2.0",
+                    "source": "test",
+                },
+            }
+        )
+    )
+
+    cancel_ev = threading.Event()
+    fed_frames = 0
+
+    class MidCancelOCR:
+        def __init__(self, *args):
+            self.counter = 0
+            self.detector = type(
+                "Det",
+                (),
+                {"prepare_tensor": staticmethod(lambda img, slot=0: np.zeros((1, 3, 32, 32), dtype=np.float32))},
+            )()
+
+        def feed(
+            self,
+            image,
+            exclusions,
+            pts,
+            time_base,
+            time_s,
+            cut=False,
+            diff=None,
+            image_premasked=False,
+            det_tensor=None,
+        ):
+            nonlocal fed_frames
+            fed_frames += 1
+            self.counter += 1
+            row = Observation(
+                self.counter,
+                pts,
+                time_base,
+                time_s,
+                [[10.0, 10.0], [80.0, 10.0], [80.0, 40.0], [10.0, 40.0]],
+                f"文本段落{self.counter}",
+                0.95,
+                f"sha_{self.counter}" * 8,
+                (0, 0, 160, 96),
+            )
+            if fed_frames == 2:
+                cancel_ev.set()
+            return [(time_s, [row], {row.id: image[:20, :20].copy()}, cut)]
+
+        def flush_remaining(self):
+            return []
+
+        def finish(self):
+            return {"fake": True, "calls": {"detector_frames": self.counter}}
+
+    monkeypatch.setattr("vnle.pipeline.RapidAdapter", MidCancelOCR)
+    req = Request.parse(
+        {
+            "roi_confirmed": True,
+            "start_s": 0,
+            "end_s": 1,
+            "exclusions": [{"x": 0, "y": 0.8, "width": 1, "height": 0.2}],
+        },
+        1,
+    )
+    media = {"width": 160, "height": 120, "stream_index": 0, "origin": {"num": 0, "den": 1}}
+    cfg = dict(DEFAULT_CONFIG, provider="CPUExecutionProvider", chinese_only=True)
+
+    monkeypatch.setenv("VNLE_PIPELINE_QUEUE", "4")
+    run_dir = tmp_path / "run_mid_cancel"
+    rep = analyze(video, media, req, run_dir, manifest, cfg, cancel=cancel_ev)
+
+    assert rep["status"] == "CANCELLED"
+    assert "Analysis cancelled" in rep["error"]
+    assert (run_dir / "run-report.json").exists()
+    assert (run_dir / "events.json").exists()
+    assert (run_dir / "observations.jsonl").exists()
+    time.sleep(0.1)
+    threads = [t.name for t in threading.enumerate()]
+    assert "vnle-decode-producer" not in threads
+    assert "vnle-evidence-writer" not in threads
+
+
+def test_evidence_writer_timeout_aborts_to_failed(tmp_path, monkeypatch):
+    """Verify evidence writer timeout raises TimeoutError and strictly marks status as FAILED."""
+    import json
+    import threading
+    from fractions import Fraction
+    import av
+    from vnle.domain import Request
+    from vnle.media import file_sha256
+    from vnle.pipeline import DEFAULT_CONFIG, analyze
+
+    video = tmp_path / "timeout_test.mkv"
+    with av.open(str(video), "w") as out_c:
+        stream = out_c.add_stream("ffv1", rate=10)
+        stream.width, stream.height = 160, 120
+        stream.pix_fmt = "yuv420p"
+        stream.time_base = Fraction(1, 1000)
+        stream.codec_context.time_base = Fraction(1, 1000)
+        img = np.zeros((120, 160, 3), dtype=np.uint8)
+        frame = av.VideoFrame.from_ndarray(img, format="bgr24")
+        frame.pts, frame.time_base = 0, Fraction(1, 1000)
+        for packet in stream.encode(frame):
+            out_c.mux(packet)
+        for packet in stream.encode():
+            out_c.mux(packet)
+
+    det, rec = tmp_path / "det", tmp_path / "rec"
+    det.write_bytes(b"fake detector")
+    rec.write_bytes(b"fake recognizer")
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "family": "PP-OCRv6-small",
+                "detector": {
+                    "path": "det",
+                    "sha256": file_sha256(det),
+                    "license": "Apache-2.0",
+                    "source": "test",
+                },
+                "recognizer": {
+                    "path": "rec",
+                    "sha256": file_sha256(rec),
+                    "license": "Apache-2.0",
+                    "source": "test",
+                },
+            }
+        )
+    )
+
+    class SingleFrameOCR:
+        def __init__(self, *args):
+            self.counter = 0
+
+        def feed(
+            self,
+            image,
+            exclusions,
+            pts,
+            time_base,
+            time_s,
+            cut=False,
+            diff=None,
+            image_premasked=False,
+            det_tensor=None,
+        ):
+            self.counter += 1
+            row = Observation(
+                self.counter,
+                pts,
+                time_base,
+                time_s,
+                [[10.0, 10.0], [80.0, 10.0], [80.0, 40.0], [10.0, 40.0]],
+                "单帧测试",
+                0.95,
+                "sha_single" * 6,
+                (0, 0, 160, 96),
+            )
+            return [(time_s, [row], {row.id: image[:20, :20].copy()}, cut)]
+
+        def flush_remaining(self):
+            return []
+
+        def finish(self):
+            return {"fake": True}
+
+    monkeypatch.setattr("vnle.pipeline.RapidAdapter", SingleFrameOCR)
+    req = Request.parse(
+        {
+            "roi_confirmed": True,
+            "start_s": 0,
+            "end_s": 1,
+            "exclusions": [{"x": 0, "y": 0.8, "width": 1, "height": 0.2}],
+        },
+        1,
+    )
+    media = {"width": 160, "height": 120, "stream_index": 0, "origin": {"num": 0, "den": 1}}
+    cfg = dict(DEFAULT_CONFIG, provider="CPUExecutionProvider", chinese_only=True)
+
+    monkeypatch.setenv("VNLE_PIPELINE_QUEUE", "4")
+
+    real_join = threading.Thread.join
+
+    def mock_join(self, timeout=None):
+        if getattr(self, "name", "") == "vnle-evidence-writer" and timeout == 30.0:
+            return
+        return real_join(self, timeout)
+
+    monkeypatch.setattr(threading.Thread, "join", mock_join)
+    run_dir = tmp_path / "run_timeout_test"
+    rep = analyze(video, media, req, run_dir, manifest, cfg)
+
+    assert rep["status"] == "FAILED"
+    assert "Evidence writer timed out" in rep["error"]
+
+
+

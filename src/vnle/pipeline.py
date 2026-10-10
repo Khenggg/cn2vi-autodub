@@ -181,6 +181,7 @@ def analyze(
     ev_queue = None
     ev_thread = None
     stop_producer = threading.Event()
+    stop_ev = threading.Event()
     last_time = None
     last_frame_end = None
     reached_end = False
@@ -254,8 +255,11 @@ def analyze(
 
         if ev_queue is not None:
             def _ev_worker():
-                while True:
-                    item = ev_queue.get()
+                while not stop_ev.is_set():
+                    try:
+                        item = ev_queue.get(timeout=0.1)
+                    except queue.Empty:
+                        continue
                     if item is None:
                         ev_queue.task_done()
                         break
@@ -300,7 +304,14 @@ def analyze(
                             raise ev_errors[0]
                         destination = output / "evidence" / f"{event_id}.png"
                         if ev_queue is not None:
-                            ev_queue.put((destination, evidence[row.id]))
+                            while not (cancel and cancel.is_set()):
+                                try:
+                                    ev_queue.put((destination, evidence[row.id]), timeout=0.1)
+                                    break
+                                except queue.Full:
+                                    continue
+                            if cancel and cancel.is_set():
+                                raise Cancelled("Analysis cancelled; partial artifacts retained")
                         else:
                             t_enc0 = perf_counter()
                             ok, encoded = cv2.imencode(".png", evidence[row.id])
@@ -666,6 +677,9 @@ def analyze(
                 ev_queue.put(None)
                 ev_thread.join(timeout=30.0)
                 timing["events_and_evidence_s"] += perf_counter() - phase_ev_flush
+                if ev_thread.is_alive():
+                    stop_ev.set()
+                    raise TimeoutError("Evidence writer timed out after 30s; queue not drained")
                 if ev_errors:
                     raise ev_errors[0]
         if not counters["analyzed_frames"]:
@@ -691,12 +705,13 @@ def analyze(
         report["error"] = f"{type(exc).__name__}: {exc}"
     finally:
         stop_producer.set()
+        stop_ev.set()
         if producer_thread is not None and producer_thread.is_alive():
             producer_thread.join(timeout=5.0)
         if ev_queue is not None and ev_thread is not None and ev_thread.is_alive():
             try:
                 ev_queue.put_nowait(None)
-            except queue.Full:
+            except (queue.Full, ValueError):
                 pass
             ev_thread.join(timeout=5.0)
         if container:
