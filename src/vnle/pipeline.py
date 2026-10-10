@@ -231,6 +231,8 @@ def analyze(
         previous_roi = None
         last_candidate = None
         last_notify = 0.0
+        prof = getattr(engine, "profiler", None)
+        prof_enabled = bool(prof is not None and getattr(prof, "enabled", False))
         frames = iter(container.decode(stream))
         with (output / "observations.jsonl").open("w", encoding="utf-8") as raw:
             while True:
@@ -241,7 +243,10 @@ def analyze(
                     frame = next(frames)
                 except StopIteration:
                     break
-                timing["decode_s"] += perf_counter() - phase
+                dt_decode = perf_counter() - phase
+                timing["decode_s"] += dt_decode
+                if prof_enabled:
+                    prof.record("frame_decode", dt_decode)
                 counters["decoded_frames"] += 1
                 if frame.pts is None or frame.time_base is None:
                     raise ValueError(
@@ -266,14 +271,17 @@ def analyze(
                     raise ValueError("Source raster dimensions changed during analysis")
                 counters["analyzed_frames"] += 1
                 phase = perf_counter()
+                t_conv0 = perf_counter()
                 image = frame.to_ndarray(format="bgr24")
+                if prof_enabled:
+                    prof.record("frame_conversion", perf_counter() - t_conv0)
+                t_scan0 = perf_counter()
                 exclusions = request.at(time_s)
                 # Blank before thumbnail resize: excluded pixels cannot leak through interpolation.
-                scan = image.copy()
                 for rect in exclusions:
                     x0, y0, x1, y1 = rect.pixels(frame.width, frame.height)
-                    scan[y0:y1, x0:x1] = 0
-                gray = cv2.resize(cv2.cvtColor(scan, cv2.COLOR_BGR2GRAY), (256, 144))
+                    image[y0:y1, x0:x1] = 0
+                gray = cv2.resize(cv2.cvtColor(image, cv2.COLOR_BGR2GRAY), (256, 144))
                 roi_changed = exclusions != previous_roi
                 scene = False
                 changed = True
@@ -292,6 +300,8 @@ def analyze(
                     or (changed and elapsed >= config["change_min_interval_s"])
                 )
                 previous_gray, previous_roi = gray, exclusions
+                if prof_enabled:
+                    prof.record("frame_scan", perf_counter() - t_scan0)
                 timing["conversion_and_scan_s"] += perf_counter() - phase
                 if due:
                     phase = perf_counter()
@@ -324,18 +334,27 @@ def analyze(
                     last_candidate = time_s
                     phase = perf_counter()
                     for f_time_s, obs, evidence, cut in completed_frames:
+                        t_ev0 = perf_counter()
                         counters["observations"] += len(obs)
                         for row in obs:
                             raw.write(json.dumps(observation_record(row), ensure_ascii=False) + "\n")
                         target_obs = [row for row in obs if contains_chinese(row.text)] if config.get("chinese_only", True) else obs
                         assignments = tracker.update(f_time_s, target_obs, cut=cut)
+                        if prof_enabled:
+                            prof.record("event_builder", perf_counter() - t_ev0)
                         for event_id, row, save in assignments:
                             if save:
                                 destination = output / "evidence" / f"{event_id}.png"
+                                t_enc0 = perf_counter()
                                 ok, encoded = cv2.imencode(".png", evidence[row.id])
+                                if prof_enabled:
+                                    prof.record("evidence_png_encode", perf_counter() - t_enc0)
                                 if not ok:
                                     raise RuntimeError("Evidence image encoding failed")
+                                t_w0 = perf_counter()
                                 destination.write_bytes(encoded.tobytes())
+                                if prof_enabled:
+                                    prof.record("evidence_disk_write", perf_counter() - t_w0)
                     timing["events_and_evidence_s"] += perf_counter() - phase
                 if perf_counter() - last_notify >= 1:
                     notify("ANALYZING", time_s)
@@ -345,18 +364,27 @@ def analyze(
             timing["ocr_s"] += perf_counter() - phase
             phase = perf_counter()
             for f_time_s, obs, evidence, cut in remaining_frames:
+                t_ev0 = perf_counter()
                 counters["observations"] += len(obs)
                 for row in obs:
                     raw.write(json.dumps(observation_record(row), ensure_ascii=False) + "\n")
                 target_obs = [row for row in obs if contains_chinese(row.text)] if config.get("chinese_only", True) else obs
                 assignments = tracker.update(f_time_s, target_obs, cut=cut)
+                if prof_enabled:
+                    prof.record("event_builder", perf_counter() - t_ev0)
                 for event_id, row, save in assignments:
                     if save:
                         destination = output / "evidence" / f"{event_id}.png"
+                        t_enc0 = perf_counter()
                         ok, encoded = cv2.imencode(".png", evidence[row.id])
+                        if prof_enabled:
+                            prof.record("evidence_png_encode", perf_counter() - t_enc0)
                         if not ok:
                             raise RuntimeError("Evidence image encoding failed")
+                        t_w0 = perf_counter()
                         destination.write_bytes(encoded.tobytes())
+                        if prof_enabled:
+                            prof.record("evidence_disk_write", perf_counter() - t_w0)
             timing["events_and_evidence_s"] += perf_counter() - phase
         if not counters["analyzed_frames"]:
             raise ValueError("No frames in the requested interval")

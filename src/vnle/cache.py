@@ -79,23 +79,29 @@ class TemporalROICache:
         image: np.ndarray,
     ):
         """Register newly recognized text observations into the temporal cache."""
-        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-        h, w = gray.shape[:2]
+        if not observations:
+            return
+        h, w = image.shape[:2]
 
         for obs in observations:
             if self.chinese_only and not contains_chinese(obs.text):
                 continue
 
-            bx0 = int(np.floor(obs.bbox[0]))
-            by0 = int(np.floor(obs.bbox[1]))
+            bx0 = max(0, int(np.floor(obs.bbox[0])))
+            by0 = max(0, int(np.floor(obs.bbox[1])))
             bx1 = min(w, int(np.ceil(obs.bbox[2])))
             by1 = min(h, int(np.ceil(obs.bbox[3])))
             if bx1 <= bx0 or by1 <= by0:
                 continue
 
-            template = gray[by0:by1, bx0:bx1].copy()
-            if template.size == 0 or template.shape[0] < 4 or template.shape[1] < 4:
+            patch = image[by0:by1, bx0:bx1]
+            if patch.size == 0 or patch.shape[0] < 4 or patch.shape[1] < 4:
                 continue
+            template = (
+                cv2.cvtColor(patch, cv2.COLOR_BGR2GRAY)
+                if patch.ndim == 3
+                else patch.copy()
+            )
 
             # Check if this overlaps closely with an existing active ROI
             matched_id = None
@@ -154,13 +160,16 @@ class TemporalROICache:
         next_id_func: Callable[[], int],
     ) -> tuple[list[Observation], dict[int, np.ndarray], bool]:
         """Track active ROIs using light template matching and emit cached observations."""
-        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-        h, w = gray.shape[:2]
+        if not self.active_rois:
+            return [], {}, True
+
+        h, w = image.shape[:2]
         hits = []
         evidence = {}
         pad = self.max_motion_padding
         all_reliable = True
         to_remove = []
+        local_thresh = min(self.similarity_threshold, 0.68)
 
         for rid, roi in list(self.active_rois.items()):
             rx0, ry0, rx1, ry1 = roi.bbox
@@ -184,15 +193,30 @@ class TemporalROICache:
                 to_remove.append(rid)
                 continue
 
-            search_area = gray[sy0:sy1, sx0:sx1]
-            if search_area.shape[0] < th or search_area.shape[1] < tw:
+            if (sy1 - sy0) < th or (sx1 - sx0) < tw:
                 to_remove.append(rid)
                 continue
 
+            patch = image[sy0:sy1, sx0:sx1]
+            search_area = (
+                cv2.cvtColor(patch, cv2.COLOR_BGR2GRAY)
+                if patch.ndim == 3
+                else patch
+            )
+
             res = cv2.matchTemplate(search_area, roi.template_gray, cv2.TM_CCOEFF_NORMED)
             min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(res)
+            global_ok = float(max_val) >= self.similarity_threshold
+            local_ok = False
 
-            if max_val >= self.similarity_threshold:
+            if global_ok:
+                aligned_gray = search_area[
+                    max_loc[1] : max_loc[1] + th, max_loc[0] : max_loc[0] + tw
+                ]
+                local_val = self._verify_local_similarity(roi.template_gray, aligned_gray)
+                local_ok = local_val >= local_thresh
+
+            if global_ok and local_ok:
                 dx = (sx0 + max_loc[0]) - rx0
                 dy = (sy0 + max_loc[1]) - ry0
 
@@ -228,10 +252,13 @@ class TemporalROICache:
             elif max_val >= 0.58:
                 roi.status = "SUSPECTED_CHANGE"
                 all_reliable = False
+                self.stats["cache_misses"] += 1
                 self.stats["cache_revalidations"] += 1
             else:
+                roi.status = "UNRELIABLE"
                 roi.consecutive_misses += 1
                 all_reliable = False
+                self.stats["cache_misses"] += 1
                 if roi.consecutive_misses >= 2:
                     to_remove.append(rid)
                     self.stats["tracked_disappeared"] += 1
@@ -240,6 +267,59 @@ class TemporalROICache:
             self.active_rois.pop(rid, None)
 
         return hits, evidence, all_reliable
+
+    def _verify_local_similarity(
+        self, template_gray: np.ndarray, candidate_gray: np.ndarray
+    ) -> float:
+        """Check local strip-wise correlation so partial character/digit changes invalidate cache."""
+        th, tw = template_gray.shape[:2]
+        if candidate_gray.shape[:2] != (th, tw):
+            if candidate_gray.size == 0 or th < 4 or tw < 4:
+                return 0.0
+            candidate_gray = cv2.resize(candidate_gray, (tw, th))
+        if tw < 8 or th < 4:
+            res = cv2.matchTemplate(candidate_gray, template_gray, cv2.TM_CCOEFF_NORMED)
+            return float(res[0, 0])
+
+        horizontal = tw >= th
+        length = tw if horizontal else th
+        step = max(8, min(16, length // 3))
+        if length <= step:
+            res = cv2.matchTemplate(candidate_gray, template_gray, cv2.TM_CCOEFF_NORMED)
+            return float(res[0, 0])
+
+        stride = max(4, step // 2)
+        min_local = 1.0
+        local_thresh = min(self.similarity_threshold, 0.68)
+        positions = list(range(0, length - step + 1, stride))
+        if positions[-1] != length - step:
+            positions.append(length - step)
+
+        for pos in positions:
+            if horizontal:
+                s1 = template_gray[:, pos : pos + step]
+                s2_search = candidate_gray[:, max(0, pos - 1) : min(tw, pos + step + 1)]
+                s2_exact = candidate_gray[:, pos : pos + step]
+            else:
+                s1 = template_gray[pos : pos + step, :]
+                s2_search = candidate_gray[max(0, pos - 1) : min(th, pos + step + 1), :]
+                s2_exact = candidate_gray[pos : pos + step, :]
+
+            std1 = float(np.std(s1))
+            std2 = float(np.std(s2_exact))
+            if std1 < 9.0 and std2 < 9.0:
+                continue
+            if (std1 < 5.0 and std2 >= 14.0) or (std2 < 5.0 and std1 >= 14.0):
+                return 0.0
+
+            res = cv2.matchTemplate(s2_search, s1, cv2.TM_CCOEFF_NORMED)
+            _, local_max, _, _ = cv2.minMaxLoc(res)
+            if local_max < min_local:
+                min_local = float(local_max)
+                if min_local < local_thresh:
+                    return min_local
+
+        return min_local
 
     def match_box_with_cache(
         self,
@@ -252,12 +332,15 @@ class TemporalROICache:
     ) -> tuple[Observation | None, np.ndarray | None]:
         """Check if a detector-proposed box matches an already confirmed cached ROI.
 
-        If matched, returns (cached_observation, crop_evidence) avoiding recognizer call.
+        Requires both spatial overlap and verified visual similarity (global + local)
+        so partial character changes never reuse stale text.
         """
         bx0 = float(np.min(candidate_box[:, 0]))
         by0 = float(np.min(candidate_box[:, 1]))
         bx1 = float(np.max(candidate_box[:, 0]))
         by1 = float(np.max(candidate_box[:, 1]))
+        h, w = detector_input.shape[:2]
+        local_thresh = min(self.similarity_threshold, 0.68)
 
         for roi in self.active_rois.values():
             if roi.status != "CONFIRMED":
@@ -272,14 +355,39 @@ class TemporalROICache:
                 union_area = box_area + roi_area - inter_area
                 iou = inter_area / union_area if union_area > 0 else 0
                 if iou >= 0.45:
-                    # Match found! Use cached recognition
                     cx0, cy0 = max(0, int(bx0)), max(0, int(by0))
-                    cx1, cy1 = min(detector_input.shape[1], int(bx1)), min(
-                        detector_input.shape[0], int(by1)
-                    )
+                    cx1, cy1 = min(w, int(bx1)), min(h, int(by1))
                     crop_img = detector_input[cy0:cy1, cx0:cx1].copy()
                     if crop_img.size == 0:
                         return None, None
+                    # Verify visual similarity if not already verified at this exact bbox & time_s
+                    if roi.last_seen_s != time_s or iou < 0.75:
+                        th, tw = roi.template_gray.shape[:2]
+                        pad = self.max_motion_padding
+                        sx0, sy0 = max(0, rx0 - pad), max(0, ry0 - pad)
+                        sx1, sy1 = min(w, rx1 + pad), min(h, ry1 + pad)
+                        if (sy1 - sy0) < th or (sx1 - sx0) < tw:
+                            continue
+                        patch = detector_input[sy0:sy1, sx0:sx1]
+                        search_gray = (
+                            cv2.cvtColor(patch, cv2.COLOR_BGR2GRAY)
+                            if patch.ndim == 3
+                            else patch
+                        )
+                        res = cv2.matchTemplate(
+                            search_gray, roi.template_gray, cv2.TM_CCOEFF_NORMED
+                        )
+                        _, max_val, _, max_loc = cv2.minMaxLoc(res)
+                        if max_val < self.similarity_threshold:
+                            continue
+                        aligned_gray = search_gray[
+                            max_loc[1] : max_loc[1] + th, max_loc[0] : max_loc[0] + tw
+                        ]
+                        local_val = self._verify_local_similarity(
+                            roi.template_gray, aligned_gray
+                        )
+                        if local_val < local_thresh:
+                            continue
                     obs_id = next_id_func()
                     obs = Observation(
                         id=obs_id,

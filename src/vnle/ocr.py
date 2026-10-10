@@ -168,26 +168,50 @@ class RapidAdapter:
 
         detector_backend = config.get("detector_backend", "ppocr")
         if detector_backend == "chinese_detector":
-            self.detector = ChineseDetector(det_cfg)
+            base_detector = ChineseDetector(det_cfg)
         else:
-            self.detector = TextDetector(det_cfg)
+            base_detector = TextDetector(det_cfg)
+
+        from .profiler import (
+            GranularProfiler,
+            make_profiled_detector,
+            make_profiled_recognizer,
+            select_stable_canvas_width,
+        )
 
         if config["stable_ocr_shapes"]:
             canvas_width = config["recognition_canvas_width"]
+            base_canvas_width = config.get("recognition_base_width", 512)
             calls = self.calls
 
             class StableRecognizer(TextRecognizer):
                 def resize_norm_img(self, img, max_wh_ratio):
-                    # Native resize is unchanged. Add normalized blank pixels only.
                     normalized = super().resize_norm_img(img, max_wh_ratio)
-                    width = max(canvas_width, math.ceil(normalized.shape[2] / 32) * 32)
-                    if width > canvas_width:
+                    if normalized.shape[2] > canvas_width:
                         calls["recognition_canvas_overflow_images"] += 1
+                    width = select_stable_canvas_width(
+                        int(normalized.shape[2]), canvas_width, base_width=base_canvas_width
+                    )
+                    if width <= normalized.shape[2]:
+                        return normalized[:, :, :width]
                     return np.pad(normalized, ((0, 0), (0, 0), (0, width - normalized.shape[2])))
 
-            self.recognizer = StableRecognizer(rec_cfg)
+            base_recognizer = StableRecognizer(rec_cfg)
         else:
-            self.recognizer = TextRecognizer(rec_cfg)
+            base_recognizer = TextRecognizer(rec_cfg)
+
+        profile_enabled = os.environ.get("VNLE_DETAILED_PROFILE", "1") != "0"
+        self.profiler = GranularProfiler(enabled=profile_enabled)
+        self.output = output
+        self.detector = make_profiled_detector(base_detector, self.profiler)
+        self.recognizer = make_profiled_recognizer(
+            base_recognizer,
+            self.profiler,
+            config["stable_ocr_shapes"],
+            config.get("recognition_canvas_width", 1536),
+            self.calls,
+            base_canvas_width=config.get("recognition_base_width", 512),
+        )
 
         from .cache import TemporalROICache
         self.cache = TemporalROICache(
@@ -195,6 +219,7 @@ class RapidAdapter:
             chinese_only=config.get("chinese_only", True),
         )
         self.last_detector_time = -999.0
+        self.scene_epoch = 0
 
     def _next_id(self) -> int:
         self.counter += 1
@@ -244,7 +269,18 @@ class RapidAdapter:
             )
         if not hasattr(self, "last_detector_time"):
             self.last_detector_time = -999.0
+        if not hasattr(self, "scene_epoch"):
+            self.scene_epoch = 0
+
+        prof = getattr(self, "profiler", None)
+
+        pre_cut_completed = []
         if cut:
+            while self.pending_crops:
+                cur_count = min(len(self.pending_crops), self.batch_size)
+                self._run_recognition_batch(cur_count)
+            pre_cut_completed = self._drain_completed_frames()
+            self.scene_epoch += 1
             self.cache.reset()
 
         use_cache = self.config.get("enable_temporal_cache", True)
@@ -252,14 +288,18 @@ class RapidAdapter:
         all_reliable = True
 
         if use_cache:
+            t_tr = perf_counter()
             cached_obs, cached_ev, all_reliable = self.cache.track_and_emit(
                 detector_input, exclusions, pts, time_base, time_s, self._next_id
             )
+            if prof is not None:
+                prof.record("roi_tracking", perf_counter() - t_tr)
 
         enable_motion_gating = self.config.get("enable_motion_gated_det", True)
         elapsed_since_det = time_s - self.last_detector_time
         watchdog_s = self.config.get("detector_watchdog_s", 0.5)
 
+        t_mg = perf_counter()
         has_ext_motion = (
             self.cache.has_external_motion(
                 diff,
@@ -271,6 +311,8 @@ class RapidAdapter:
             if diff is not None
             else True
         )
+        if prof is not None:
+            prof.record("motion_gate", perf_counter() - t_mg)
 
         need_detector = (
             cut
@@ -324,27 +366,36 @@ class RapidAdapter:
                     if overlaps_exclusion:
                         continue
 
-                    # Check if this box matches an already confirmed cached ROI
-                    matched_cache_obs, matched_cache_ev = (
-                        self.cache.match_box_with_cache(
-                            local, detector_input, pts, time_base, time_s, self._next_id
-                        )
-                        if use_cache
-                        else (None, None)
-                    )
-
-                    if matched_cache_obs is not None:
-                        already_emitted = any(
-                            self._box_overlap(obs.polygon, local) >= 0.5
-                            for obs in frame_cached_obs
-                        )
-                        if not already_emitted:
-                            frame_cached_obs.append(matched_cache_obs)
-                            frame_cached_ev[matched_cache_obs.id] = matched_cache_ev
-                            self.calls["cache_recognition_hits"] += 1
+                    if use_cache and any(
+                        self._box_overlap(obs.polygon, local) >= 0.5
+                        for obs in frame_cached_obs
+                    ):
+                        self.cache.stats["skipped_recognitions"] += 1
                         continue
 
+                    # Check if this box matches an already confirmed cached ROI
+                    if use_cache:
+                        t_tr2 = perf_counter()
+                        matched_cache_obs, matched_cache_ev = (
+                            self.cache.match_box_with_cache(
+                                local, detector_input, pts, time_base, time_s, self._next_id
+                            )
+                        )
+                        if prof is not None:
+                            prof.record("roi_tracking", perf_counter() - t_tr2)
+                    else:
+                        matched_cache_obs, matched_cache_ev = None, None
+
+                    if matched_cache_obs is not None:
+                        frame_cached_obs.append(matched_cache_obs)
+                        frame_cached_ev[matched_cache_obs.id] = matched_cache_ev
+                        self.calls["cache_recognition_hits"] += 1
+                        continue
+
+                    t_cr = perf_counter()
                     crop = self.crop(detector_input, local)
+                    if prof is not None:
+                        prof.record("rec_crop_warp", perf_counter() - t_cr)
                     polygon = [[float(p[0]), float(p[1])] for p in local]
                     edge = bool(
                         self.np.any(local[:, 0] < 2)
@@ -360,6 +411,7 @@ class RapidAdapter:
             "time_base": time_base,
             "time_s": time_s,
             "cut": cut,
+            "scene_epoch": self.scene_epoch,
             "total_boxes": len(candidate_boxes) + len(frame_cached_obs),
             "observations": list(frame_cached_obs),
             "evidence": dict(frame_cached_ev),
@@ -374,7 +426,7 @@ class RapidAdapter:
         while len(self.pending_crops) >= self.batch_size:
             self._run_recognition_batch(self.batch_size)
 
-        return self._drain_completed_frames()
+        return pre_cut_completed + self._drain_completed_frames()
 
     def _drain_completed_frames(self) -> list[tuple[float, list[Observation], dict, bool]]:
         completed = []
@@ -403,7 +455,11 @@ class RapidAdapter:
                 )
                 self.calls["recognition_dummy_rows"] += extra
         started = perf_counter()
-        result = self.recognizer(TextRecInput(img=images, return_word_box=False))
+        rec_input = TextRecInput(img=images, return_word_box=False)
+        if getattr(self.recognizer, "_is_profiled", False):
+            result = self.recognizer(rec_input, real_count=count)
+        else:
+            result = self.recognizer(rec_input)
         self.timings["recognition_s"] += perf_counter() - started
         self.calls["recognition_batches"] += 1
         if result.txts is None or len(result.txts) != len(images):
@@ -432,6 +488,7 @@ class RapidAdapter:
             if (
                 self.config.get("enable_temporal_cache", True)
                 and "detector_input" in f_obj
+                and f_obj.get("scene_epoch") == getattr(self, "scene_epoch", 0)
             ):
                 self.cache.register_observations([obs], f_obj["detector_input"])
 
@@ -474,6 +531,14 @@ class RapidAdapter:
                 "node_duration_s": dict(durations),
                 "gpu_only": None if not nodes else set(nodes) == {"CUDAExecutionProvider"},
             }
+        prof = getattr(self, "profiler", None)
+        out_dir = getattr(self, "output", None)
+        if prof is not None and prof.enabled and out_dir is not None:
+            detail_path = out_dir / "ocr-profile-detail.json"
+            detail_data = prof.export(ort_profiles=profiles)
+            detail_path.write_text(
+                json.dumps(detail_data, ensure_ascii=False, indent=2), encoding="utf-8"
+            )
         return {
             "requested_provider": self.config["provider"],
             "runtime_dll_paths": self.runtime_dll_paths,
