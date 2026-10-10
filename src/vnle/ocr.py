@@ -116,13 +116,26 @@ class RapidAdapter:
         if provider not in ("CUDAExecutionProvider", "CPUExecutionProvider"):
             raise ValueError("Prototype supports explicit CUDA or explicit CPU only")
         cv2.setNumThreads(config["native_threads"])
+        from .profiler import (
+            GranularProfiler,
+            make_profiled_detector,
+            make_profiled_recognizer,
+            select_stable_canvas_width,
+        )
+
+        profile_enabled = os.environ.get("VNLE_DETAILED_PROFILE", "1") != "0"
+        self.ort_profiling_enabled = os.environ.get("VNLE_ORT_PROFILE", "1") != "0"
+        self.profiler = GranularProfiler(enabled=profile_enabled)
+        self.output = output
+
         self.available_providers = ort.get_available_providers()
         for name in ("detector", "recognizer"):
             options = ort.SessionOptions()
             options.intra_op_num_threads = config["native_threads"]
             options.inter_op_num_threads = 1
-            options.enable_profiling = True
-            options.profile_file_prefix = str(output / f"ort-{name}")
+            options.enable_profiling = self.ort_profiling_enabled
+            if self.ort_profiling_enabled:
+                options.profile_file_prefix = str(output / f"ort-{name}")
             provider_options = {"device_id": config["device_id"]}
             if provider == "CUDAExecutionProvider":
                 provider_options["cudnn_conv_algo_search"] = config["cudnn_conv_algo_search"]
@@ -139,6 +152,8 @@ class RapidAdapter:
             if session.get_providers()[0] != provider:
                 raise ValueError(f"ORT did not activate {provider} for {name}")
             self.sessions[name] = session
+
+        self.profiler.resource_sampler.sample_now(is_after_load=True)
 
         # RapidOCR constructor only parses its configuration. Own sessions bypass
         # its downloader and warning-only provider fallback behavior.
@@ -172,13 +187,6 @@ class RapidAdapter:
         else:
             base_detector = TextDetector(det_cfg)
 
-        from .profiler import (
-            GranularProfiler,
-            make_profiled_detector,
-            make_profiled_recognizer,
-            select_stable_canvas_width,
-        )
-
         if config["stable_ocr_shapes"]:
             canvas_width = config["recognition_canvas_width"]
             base_canvas_width = config.get("recognition_base_width", 512)
@@ -200,9 +208,6 @@ class RapidAdapter:
         else:
             base_recognizer = TextRecognizer(rec_cfg)
 
-        profile_enabled = os.environ.get("VNLE_DETAILED_PROFILE", "1") != "0"
-        self.profiler = GranularProfiler(enabled=profile_enabled)
-        self.output = output
         self.detector = make_profiled_detector(base_detector, self.profiler)
         self.recognizer = make_profiled_recognizer(
             base_recognizer,
@@ -338,6 +343,8 @@ class RapidAdapter:
             self.timings["detection_s"] += perf_counter() - started
             self.calls["detector_frames"] += 1
             self.calls["detector_tiles"] += 1
+            if self.calls["detector_frames"] == 1 and prof is not None:
+                prof.resource_sampler.sample_now()
 
             if detection.boxes is not None:
                 for box in detection.boxes:
@@ -462,6 +469,9 @@ class RapidAdapter:
             result = self.recognizer(rec_input)
         self.timings["recognition_s"] += perf_counter() - started
         self.calls["recognition_batches"] += 1
+        prof = getattr(self, "profiler", None)
+        if prof is not None and self.calls["recognition_batches"] % 10 == 1:
+            prof.resource_sampler.sample_now()
         if result.txts is None or len(result.txts) != len(images):
             raise RuntimeError("Recognition output length differs from crop batch")
         for i, (f_obj, crop, polygon, tile, edge, pts, time_base, time_s) in enumerate(
@@ -513,32 +523,50 @@ class RapidAdapter:
 
     def finish(self) -> dict:
         profiles = {}
+        ort_prof = getattr(self, "ort_profiling_enabled", True)
         for name, session in self.sessions.items():
-            path = Path(session.end_profiling())
-            trace = json.loads(path.read_text(encoding="utf-8"))
-            nodes = Counter()
-            durations = Counter()
-            for item in trace:
-                provider = item.get("args", {}).get("provider")
-                if provider:
-                    nodes[provider] += 1
-                    durations[provider] += item.get("dur", 0) / 1_000_000
-            profiles[name] = {
-                "session_providers": session.get_providers(),
-                "session_provider_options": session.get_provider_options(),
-                "trace": path.name,
-                "node_executions_by_provider": dict(nodes),
-                "node_duration_s": dict(durations),
-                "gpu_only": None if not nodes else set(nodes) == {"CUDAExecutionProvider"},
-            }
+            if ort_prof:
+                path = Path(session.end_profiling())
+                trace = json.loads(path.read_text(encoding="utf-8"))
+                nodes = Counter()
+                durations = Counter()
+                for item in trace:
+                    provider = item.get("args", {}).get("provider")
+                    if provider:
+                        nodes[provider] += 1
+                        durations[provider] += item.get("dur", 0) / 1_000_000
+                profiles[name] = {
+                    "session_providers": session.get_providers(),
+                    "session_provider_options": session.get_provider_options(),
+                    "ort_profiling_enabled": True,
+                    "trace": path.name,
+                    "node_executions_by_provider": dict(nodes),
+                    "node_duration_s": dict(durations),
+                    "gpu_only": None if not nodes else set(nodes) == {"CUDAExecutionProvider"},
+                }
+            else:
+                profiles[name] = {
+                    "session_providers": session.get_providers(),
+                    "session_provider_options": session.get_provider_options(),
+                    "ort_profiling_enabled": False,
+                    "trace": None,
+                    "node_executions_by_provider": {},
+                    "node_duration_s": {},
+                    "gpu_only": None,
+                }
         prof = getattr(self, "profiler", None)
         out_dir = getattr(self, "output", None)
-        if prof is not None and prof.enabled and out_dir is not None:
-            detail_path = out_dir / "ocr-profile-detail.json"
-            detail_data = prof.export(ort_profiles=profiles)
-            detail_path.write_text(
-                json.dumps(detail_data, ensure_ascii=False, indent=2), encoding="utf-8"
-            )
+        resources = None
+        if prof is not None:
+            if prof.enabled and out_dir is not None:
+                detail_path = out_dir / "ocr-profile-detail.json"
+                detail_data = prof.export(ort_profiles=profiles)
+                resources = detail_data.get("resources")
+                detail_path.write_text(
+                    json.dumps(detail_data, ensure_ascii=False, indent=2), encoding="utf-8"
+                )
+            else:
+                resources = prof.resource_sampler.stop()
         return {
             "requested_provider": self.config["provider"],
             "runtime_dll_paths": self.runtime_dll_paths,
@@ -547,4 +575,5 @@ class RapidAdapter:
             "timings": dict(self.timings),
             "calls": dict(self.calls),
             "cache_stats": dict(self.cache.stats),
+            "resources": resources,
         }

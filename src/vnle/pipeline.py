@@ -413,6 +413,11 @@ def analyze(
         if engine:
             try:
                 report["ocr_execution"] = engine.finish()
+                if (
+                    isinstance(report["ocr_execution"], dict)
+                    and report["ocr_execution"].get("resources")
+                ):
+                    report["resources"] = report["ocr_execution"]["resources"]
             except Exception as exc:
                 report["profile_error"] = str(exc)
                 if report["status"] == "COMPLETED_UNVERIFIED":

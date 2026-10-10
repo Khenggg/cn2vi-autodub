@@ -33,51 +33,246 @@ def _percentile(sorted_vals: list[float], q: float) -> float:
     return sorted_vals[low] * (1.0 - weight) + sorted_vals[high] * weight
 
 
-def sample_resources() -> dict[str, Any]:
-    res: dict[str, Any] = {"cpu_logical_cores": os.cpu_count()}
-    if os.name == "nt":
-        try:
-            class PROCESS_MEMORY_COUNTERS(ctypes.Structure):
-                _fields_ = [
-                    ("cb", ctypes.c_ulong),
-                    ("PageFaultCount", ctypes.c_ulong),
-                    ("PeakWorkingSetSize", ctypes.c_size_t),
-                    ("WorkingSetSize", ctypes.c_size_t),
-                    ("QuotaPeakPagedPoolUsage", ctypes.c_size_t),
-                    ("QuotaPagedPoolUsage", ctypes.c_size_t),
-                    ("QuotaPeakNonPagedPoolUsage", ctypes.c_size_t),
-                    ("QuotaNonPagedPoolUsage", ctypes.c_size_t),
-                    ("PagefileUsage", ctypes.c_size_t),
-                    ("PeakPagefileUsage", ctypes.c_size_t),
-                ]
+import threading
 
-            pmc = PROCESS_MEMORY_COUNTERS()
-            pmc.cb = ctypes.sizeof(PROCESS_MEMORY_COUNTERS)
-            handle = ctypes.windll.kernel32.GetCurrentProcess()
-            if ctypes.windll.psapi.GetProcessMemoryInfo(handle, ctypes.byref(pmc), pmc.cb):
-                res["ram_working_set_mb"] = round(pmc.WorkingSetSize / (1024 * 1024), 2)
-                res["ram_peak_working_set_mb"] = round(pmc.PeakWorkingSetSize / (1024 * 1024), 2)
+
+class _PROCESS_MEMORY_COUNTERS(ctypes.Structure):
+    _fields_ = [
+        ("cb", ctypes.c_ulong),
+        ("PageFaultCount", ctypes.c_ulong),
+        ("PeakWorkingSetSize", ctypes.c_size_t),
+        ("WorkingSetSize", ctypes.c_size_t),
+        ("QuotaPeakPagedPoolUsage", ctypes.c_size_t),
+        ("QuotaPagedPoolUsage", ctypes.c_size_t),
+        ("QuotaPeakNonPagedPoolUsage", ctypes.c_size_t),
+        ("QuotaNonPagedPoolUsage", ctypes.c_size_t),
+        ("PagefileUsage", ctypes.c_size_t),
+        ("PeakPagefileUsage", ctypes.c_size_t),
+    ]
+
+
+class _nvmlMemory_t(ctypes.Structure):
+    _fields_ = [
+        ("total", ctypes.c_ulonglong),
+        ("free", ctypes.c_ulonglong),
+        ("used", ctypes.c_ulonglong),
+    ]
+
+
+class _PDH_FMT_COUNTERVALUE(ctypes.Structure):
+    class _U(ctypes.Union):
+        _fields_ = [
+            ("longValue", ctypes.c_long),
+            ("doubleValue", ctypes.c_double),
+            ("largeValue", ctypes.c_longlong),
+            ("AnsiStringValue", ctypes.c_char_p),
+            ("WideStringValue", ctypes.c_wchar_p),
+        ]
+
+    _fields_ = [("CStatus", ctypes.c_ulong), ("u", _U)]
+
+
+class _PDH_FMT_COUNTERVALUE_ITEM_W(ctypes.Structure):
+    _fields_ = [("szName", ctypes.c_wchar_p), ("FmtValue", _PDH_FMT_COUNTERVALUE)]
+
+
+class ResourceSampler:
+    """Continuous and checkpoint sampler for process RAM, per-process VRAM, and device VRAM."""
+
+    def __init__(self, interval_s: float = 1.0):
+        self.interval_s = interval_s
+        self._lock = threading.Lock()
+        self._stop = threading.Event()
+        self._thread: threading.Thread | None = None
+        self.sample_count = 0
+        self.ram_working_set_mb = 0.0
+        self.ram_peak_working_set_mb = 0.0
+        self.ram_peak_commit_mb = 0.0
+        self.vram_process_dedicated_mb = 0.0
+        self.vram_process_peak_mb = 0.0
+        self.vram_device_baseline_mb: float | None = None
+        self.vram_device_after_load_mb: float | None = None
+        self.vram_device_used_mb = 0.0
+        self.vram_device_peak_mb = 0.0
+        self.vram_total_mb = 0.0
+
+        self._nvml = None
+        self._nvml_handle = ctypes.c_void_p()
+        self._pdh = None
+        self._pdh_query = ctypes.c_void_p()
+        self._pdh_counter = ctypes.c_void_p()
+        self._init_handles()
+        self.sample_now(is_baseline=True)
+
+    def _init_handles(self):
+        if os.name != "nt":
+            return
+        try:
+            nvml = ctypes.windll.LoadLibrary("nvml.dll")
+            if nvml.nvmlInit_v2() == 0:
+                if nvml.nvmlDeviceGetHandleByIndex_v2(0, ctypes.byref(self._nvml_handle)) == 0:
+                    self._nvml = nvml
+        except Exception:
+            self._nvml = None
+
+        try:
+            pdh = ctypes.windll.pdh
+            if pdh.PdhOpenQueryW(None, 0, ctypes.byref(self._pdh_query)) == 0:
+                pid = os.getpid()
+                path = f"\\GPU Process Memory(pid_{pid}*)\\Dedicated Usage"
+                if pdh.PdhAddEnglishCounterW(
+                    self._pdh_query, path, 0, ctypes.byref(self._pdh_counter)
+                ) == 0:
+                    self._pdh = pdh
+        except Exception:
+            self._pdh = None
+
+    def _query_ram(self) -> tuple[float, float, float]:
+        if os.name != "nt":
+            return 0.0, 0.0, 0.0
+        try:
+            pmc = _PROCESS_MEMORY_COUNTERS()
+            pmc.cb = ctypes.sizeof(_PROCESS_MEMORY_COUNTERS)
+            k32 = ctypes.windll.kernel32
+            k32.GetCurrentProcess.restype = ctypes.c_void_p
+            h = k32.GetCurrentProcess()
+            k32.K32GetProcessMemoryInfo.argtypes = [
+                ctypes.c_void_p,
+                ctypes.POINTER(_PROCESS_MEMORY_COUNTERS),
+                ctypes.c_ulong,
+            ]
+            k32.K32GetProcessMemoryInfo.restype = ctypes.c_int
+            if k32.K32GetProcessMemoryInfo(h, ctypes.byref(pmc), pmc.cb):
+                ws = round(pmc.WorkingSetSize / (1024 * 1024), 2)
+                peak_ws = round(pmc.PeakWorkingSetSize / (1024 * 1024), 2)
+                peak_commit = round(pmc.PeakPagefileUsage / (1024 * 1024), 2)
+                return ws, peak_ws, peak_commit
         except Exception:
             pass
-    try:
-        out = subprocess.check_output(
-            [
-                "nvidia-smi",
-                "--query-gpu=memory.used,memory.total",
-                "--format=csv,noheader,nounits",
-            ],
-            text=True,
-            stderr=subprocess.DEVNULL,
-            timeout=3,
-        ).strip()
-        if out:
-            first_line = out.splitlines()[0]
-            used_str, total_str = [x.strip() for x in first_line.split(",")[:2]]
-            res["vram_used_mb"] = float(used_str)
-            res["vram_total_mb"] = float(total_str)
-    except Exception:
-        pass
-    return res
+        return 0.0, 0.0, 0.0
+
+    def _query_device_vram(self) -> tuple[float, float]:
+        if self._nvml is not None:
+            try:
+                mem = _nvmlMemory_t()
+                if self._nvml.nvmlDeviceGetMemoryInfo(self._nvml_handle, ctypes.byref(mem)) == 0:
+                    return (
+                        round(mem.used / (1024 * 1024), 2),
+                        round(mem.total / (1024 * 1024), 2),
+                    )
+            except Exception:
+                pass
+        return 0.0, 0.0
+
+    def _query_process_vram(self) -> float:
+        if self._pdh is None:
+            return 0.0
+        try:
+            if self._pdh.PdhCollectQueryData(self._pdh_query) != 0:
+                return 0.0
+            buf_size = ctypes.c_ulong(0)
+            item_count = ctypes.c_ulong(0)
+            PDH_FMT_LARGE = 0x00000400
+            self._pdh.PdhGetFormattedCounterArrayW(
+                self._pdh_counter,
+                PDH_FMT_LARGE,
+                ctypes.byref(buf_size),
+                ctypes.byref(item_count),
+                None,
+            )
+            if buf_size.value == 0 or item_count.value == 0:
+                return 0.0
+            buf = (ctypes.c_byte * buf_size.value)()
+            if (
+                self._pdh.PdhGetFormattedCounterArrayW(
+                    self._pdh_counter,
+                    PDH_FMT_LARGE,
+                    ctypes.byref(buf_size),
+                    ctypes.byref(item_count),
+                    ctypes.cast(buf, ctypes.POINTER(_PDH_FMT_COUNTERVALUE_ITEM_W)),
+                )
+                != 0
+            ):
+                return 0.0
+            items = ctypes.cast(buf, ctypes.POINTER(_PDH_FMT_COUNTERVALUE_ITEM_W))
+            total_bytes = 0
+            for i in range(item_count.value):
+                total_bytes += max(0, int(items[i].FmtValue.u.largeValue))
+            return round(total_bytes / (1024 * 1024), 2)
+        except Exception:
+            return 0.0
+
+    def sample_now(self, is_baseline: bool = False, is_after_load: bool = False):
+        with self._lock:
+            ws, peak_ws, peak_commit = self._query_ram()
+            dev_used, dev_total = self._query_device_vram()
+            proc_vram = self._query_process_vram()
+            self.sample_count += 1
+            if ws > 0:
+                self.ram_working_set_mb = ws
+                self.ram_peak_working_set_mb = max(self.ram_peak_working_set_mb, peak_ws)
+                self.ram_peak_commit_mb = max(self.ram_peak_commit_mb, peak_commit)
+            if dev_total > 0:
+                self.vram_total_mb = dev_total
+                self.vram_device_used_mb = dev_used
+                self.vram_device_peak_mb = max(self.vram_device_peak_mb, dev_used)
+                if is_baseline or self.vram_device_baseline_mb is None:
+                    self.vram_device_baseline_mb = dev_used
+                if is_after_load:
+                    self.vram_device_after_load_mb = dev_used
+            if proc_vram >= 0:
+                self.vram_process_dedicated_mb = proc_vram
+                self.vram_process_peak_mb = max(self.vram_process_peak_mb, proc_vram)
+
+    def start(self):
+        if self._thread is not None:
+            return
+        self._stop.clear()
+
+        def _loop():
+            while not self._stop.wait(self.interval_s):
+                self.sample_now()
+
+        self._thread = threading.Thread(target=_loop, daemon=True)
+        self._thread.start()
+
+    def stop(self) -> dict[str, Any]:
+        self._stop.set()
+        if self._thread is not None:
+            self._thread.join(timeout=1.0)
+            self._thread = None
+        self.sample_now()
+        if self._pdh is not None and self._pdh_query.value:
+            try:
+                self._pdh.PdhCloseQuery(self._pdh_query)
+            except Exception:
+                pass
+            self._pdh = None
+        return self.snapshot()
+
+    def snapshot(self) -> dict[str, Any]:
+        base = self.vram_device_baseline_mb or 0.0
+        delta_peak = round(max(0.0, self.vram_device_peak_mb - base), 2)
+        return {
+            "cpu_logical_cores": os.cpu_count(),
+            "sample_count": self.sample_count,
+            "ram_working_set_mb": self.ram_working_set_mb,
+            "ram_peak_working_set_mb": self.ram_peak_working_set_mb,
+            "ram_peak_commit_mb": self.ram_peak_commit_mb,
+            "vram_process_dedicated_mb": self.vram_process_dedicated_mb,
+            "vram_process_peak_mb": self.vram_process_peak_mb,
+            "vram_device_baseline_mb": self.vram_device_baseline_mb,
+            "vram_device_after_load_mb": self.vram_device_after_load_mb,
+            "vram_used_mb": self.vram_device_used_mb,
+            "vram_device_peak_mb": self.vram_device_peak_mb,
+            "vram_device_delta_peak_mb": delta_peak,
+            "vram_total_mb": self.vram_total_mb,
+        }
+
+
+def sample_resources() -> dict[str, Any]:
+    sampler = ResourceSampler()
+    return sampler.stop()
 
 
 class GranularProfiler:
@@ -129,8 +324,8 @@ class GranularProfiler:
         self.resized_48h_widths: list[int] = []
         self.padded_widths: list[int] = []
         self.width_overflow_count: int = 0
-        self.peak_vram_mb: float = 0.0
-        self.peak_ram_mb: float = 0.0
+        self.resource_sampler = ResourceSampler(interval_s=1.0)
+        self.resource_sampler.start()
 
     def record(self, name: str, duration_s: float):
         if self.enabled:
@@ -224,7 +419,7 @@ class GranularProfiler:
             round(total_resized / total_padded, 4) if total_padded > 0 else 0.0
         )
 
-        res = sample_resources()
+        res = self.resource_sampler.stop()
         return {
             "schema_version": 1,
             "enabled": self.enabled,

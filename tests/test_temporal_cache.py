@@ -506,3 +506,45 @@ def test_scene_cut_drains_pending_crops_before_cache_reset():
     assert all(e["end_s"] == 0.5 for e in scene_a_events)
     assert scene_b_events[0]["start_s"] == 0.5
 
+
+def test_resource_sampler_and_ort_profiling_toggle(tmp_path):
+    from types import SimpleNamespace
+    from collections import Counter
+    from vnle.ocr import RapidAdapter
+    from vnle.pipeline import DEFAULT_CONFIG
+    from vnle.profiler import GranularProfiler, sample_resources
+
+    res = sample_resources()
+    assert res["sample_count"] >= 1
+    assert "vram_process_peak_mb" in res
+    assert "vram_device_peak_mb" in res
+    assert "ram_peak_working_set_mb" in res
+
+    adapter = RapidAdapter.__new__(RapidAdapter)
+    adapter.config = dict(DEFAULT_CONFIG)
+    adapter.runtime_dll_paths = []
+    adapter.available_providers = ["CUDAExecutionProvider", "CPUExecutionProvider"]
+    adapter.timings = Counter()
+    adapter.calls = Counter()
+    adapter.cache = SimpleNamespace(stats={"cache_hits": 3})
+    adapter.ort_profiling_enabled = False
+    adapter.profiler = GranularProfiler(enabled=False)
+    adapter.output = tmp_path
+    adapter.sessions = {
+        "detector": SimpleNamespace(
+            get_providers=lambda: ["CUDAExecutionProvider"],
+            get_provider_options=lambda: {"CUDAExecutionProvider": {}},
+        ),
+        "recognizer": SimpleNamespace(
+            get_providers=lambda: ["CUDAExecutionProvider"],
+            get_provider_options=lambda: {"CUDAExecutionProvider": {}},
+        ),
+    }
+
+    summary = adapter.finish()
+    assert summary["profiles"]["detector"]["ort_profiling_enabled"] is False
+    assert summary["profiles"]["detector"]["trace"] is None
+    assert summary["resources"] is not None
+    assert summary["resources"]["sample_count"] >= 1
+
+
